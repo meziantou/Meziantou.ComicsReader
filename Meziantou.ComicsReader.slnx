@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+  </Folder>
+  <Project Path="Meziantou.ComicsReader.Tests/Meziantou.ComicsReader.Tests.csproj" />
+  <Project Path="Meziantou.ComicsReader/Meziantou.ComicsReader.csproj" />
+</Solution>
