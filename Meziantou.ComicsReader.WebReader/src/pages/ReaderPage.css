@@ -181,7 +181,7 @@
 
 /* Large progress bar in fullscreen to accommodate status bar (e.g., on iPad) */
 .fullscreen.large-progress .reading-progress {
-  height: 27px;
+  height: 24px;
 }
 
 .page-container {
