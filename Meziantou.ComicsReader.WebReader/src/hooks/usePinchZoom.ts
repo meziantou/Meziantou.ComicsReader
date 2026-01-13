@@ -23,6 +23,7 @@ export function usePinchZoom(options: UsePinchZoomOptions = {}) {
   });
 
   const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [isInteracting, setIsInteracting] = useState<boolean>(false);
 
   const initialDistance = useRef<number>(0);
   const initialScale = useRef<number>(1);
@@ -43,6 +44,7 @@ export function usePinchZoom(options: UsePinchZoomOptions = {}) {
   const handleTouchStart = useCallback((e: TouchEvent) => {
     if (e.touches.length === 2) {
       isPinching.current = true;
+      setIsInteracting(true);
       const touch1 = e.touches[0];
       const touch2 = e.touches[1];
 
@@ -66,6 +68,7 @@ export function usePinchZoom(options: UsePinchZoomOptions = {}) {
         if (current.scale > 1) {
           // Start panning
           isPanning.current = true;
+          setIsInteracting(true);
           const touch = e.touches[0];
           panStart.current = {
             x: touch.clientX,
@@ -135,8 +138,8 @@ export function usePinchZoom(options: UsePinchZoomOptions = {}) {
 
       setState(prev => ({
         ...prev,
-        translateX: panStart.current.translateX + deltaX,
-        translateY: panStart.current.translateY + deltaY,
+        translateX: panStart.current.translateX + deltaX / prev.scale,
+        translateY: panStart.current.translateY + deltaY / prev.scale,
       }));
     }
   }, [minScale, maxScale]);
@@ -144,6 +147,7 @@ export function usePinchZoom(options: UsePinchZoomOptions = {}) {
   const handleTouchEnd = useCallback(() => {
     isPinching.current = false;
     isPanning.current = false;
+    setIsInteracting(false);
     setState(current => {
       if (current.scale < 1.1) {
         return { scale: 1, translateX: 0, translateY: 0 };
@@ -173,5 +177,6 @@ export function usePinchZoom(options: UsePinchZoomOptions = {}) {
     translateY: state.translateY,
     resetZoom,
     isZoomed: state.scale > 1,
+    isInteracting,
   };
 }

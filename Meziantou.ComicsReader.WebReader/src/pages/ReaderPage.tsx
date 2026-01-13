@@ -40,7 +40,7 @@ export function ReaderPage() {
   const previousPageUrl = useRef<string | null>(null);
   const hasRestoredState = useRef(false);
 
-  const { containerRef: zoomContainerRef, scale, translateX, translateY, resetZoom, isZoomed } = usePinchZoom();
+  const { containerRef: zoomContainerRef, scale, translateX, translateY, resetZoom, isZoomed, isInteracting } = usePinchZoom();
 
   // Restore state after PWA update
   useEffect(() => {
@@ -317,10 +317,10 @@ export function ReaderPage() {
   // Swipe handlers
   const { handleTouchStart, handleTouchMove, handleTouchEnd } = useSwipe({
     onSwipeLeft: () => {
-      if (!isZoomed) goToNextPage();
+      if (!isZoomed && !isInteracting) goToNextPage();
     },
     onSwipeRight: () => {
-      if (!isZoomed) goToPreviousPage();
+      if (!isZoomed && !isInteracting) goToPreviousPage();
     },
     onSwipeUp: exitFullscreen,
     onSwipeDown: exitFullscreen,
@@ -367,7 +367,7 @@ export function ReaderPage() {
 
   // Touch handlers for swipe - only enable when not zoomed and attach to outer container
   useEffect(() => {
-    if (isZoomed) return;
+    if (isZoomed || isInteracting) return;
 
     const container = containerRef.current;
     if (!container) return;
@@ -381,7 +381,7 @@ export function ReaderPage() {
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd, isZoomed]);
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, isZoomed, isInteracting]);
 
   if (!book) {
     return (
