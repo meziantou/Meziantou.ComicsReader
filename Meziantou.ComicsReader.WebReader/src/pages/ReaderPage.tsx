@@ -45,11 +45,11 @@ export function ReaderPage() {
   // Restore state after PWA update
   useEffect(() => {
     if (hasRestoredState.current) return;
-    
+
     const savedState = restoreStateAfterUpdate();
     if (savedState?.isFullscreen && containerRef.current) {
       hasRestoredState.current = true;
-      
+
       // Request fullscreen after a short delay to ensure the page is fully loaded
       setTimeout(() => {
         containerRef.current?.requestFullscreen().then(() => {
@@ -74,7 +74,7 @@ export function ReaderPage() {
     if (foundBook) {
       // Only update if book is not set yet or if meaningful properties changed
       setBook(prevBook => {
-        if (!prevBook || 
+        if (!prevBook ||
             prevBook.path !== foundBook.path ||
             prevBook.pageCount !== foundBook.pageCount) {
           // Start from saved progress or page 0
@@ -86,11 +86,11 @@ export function ReaderPage() {
         // Don't return a new object if only lastRead timestamp changed to prevent flickering
         const progressChanged = prevBook.currentPage !== foundBook.currentPage ||
                                 prevBook.isCompleted !== foundBook.isCompleted;
-        
+
         if (progressChanged) {
           return foundBook;
         }
-        
+
         // Keep the previous book object to avoid triggering dependent effects
         return prevBook;
       });
@@ -165,7 +165,7 @@ export function ReaderPage() {
         if (!cancelled) {
           setPageUrl(url);
           previousPageUrl.current = url;
-          
+
           // Update cache status after loading page (pages may be auto-cached)
           const status = await getBookCacheStatus(bookPath, bookPageCount);
           setCacheStatus(status);
@@ -496,6 +496,7 @@ export function ReaderPage() {
                 alt={`Page ${currentPage + 1}`}
                 className="page-image"
                 draggable={false}
+                onDoubleClick={!isFullscreen ? toggleFullscreen : undefined}
                 style={{
                   transform: `scale(${scale}) translate(${translateX}px, ${translateY}px)`,
                 }}
