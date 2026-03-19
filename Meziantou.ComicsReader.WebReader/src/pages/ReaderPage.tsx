@@ -23,7 +23,7 @@ export function ReaderPage() {
   const [book, setBook] = useState<BookResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [pageUrl, setPageUrl] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
   const [isLoading, setIsLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

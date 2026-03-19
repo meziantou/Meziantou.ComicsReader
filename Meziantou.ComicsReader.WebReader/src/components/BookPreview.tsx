@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context';
 import { getCoverWithCache } from '../services';
@@ -43,8 +43,22 @@ export function BookPreview({ book, showProgress = true, eager = false }: BookPr
     ? ((book.currentPage + 1) / book.pageCount) * 100
     : 0;
 
+  const handleOpenBook = useCallback((event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) {
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      return;
+    }
+
+    document.documentElement.requestFullscreen?.().catch(() => {
+      // Ignore failures (for example when fullscreen is blocked by browser policies)
+    });
+  }, []);
+
   return (
-    <Link to={`/reader/${encodeURIComponent(book.path)}`} className="book-preview">
+    <Link to={`/reader/${encodeURIComponent(book.path)}`} className="book-preview" onClick={handleOpenBook}>
       <div className="book-cover-container">
         {coverUrl ? (
           <img
