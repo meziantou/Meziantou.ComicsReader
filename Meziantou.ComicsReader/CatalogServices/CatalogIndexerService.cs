@@ -153,123 +153,174 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
 
         async Task Index()
         {
-            using (ComicsReaderActivitySource.Instance.StartActivity("Indexation"))
+            using var indexationActivity = ComicsReaderActivitySource.Instance.StartActivity("Indexation");
+
+            logger.LogInformation("Start indexation");
+
+            var discoveredBookCount = 0;
+            var processedBookCount = 0;
+            var updatedBookCount = 0;
+            var skippedBookCount = 0;
+            var failedBookCount = 0;
+            var indexationStopwatch = Stopwatch.StartNew();
+
+            try
             {
-                logger.LogInformation("Start indexation");
-                try
+                var books = await catalogService.GetBooks();
+                var foundBooks = new HashSet<CatalogItemPath>();
+
+                var path = options.Value.Path;
+                using (var indexBooksActivity = ComicsReaderActivitySource.Instance.StartActivity("Index books"))
                 {
-                    var books = await catalogService.GetBooks();
-                    var foundBooks = new HashSet<CatalogItemPath>();
+                    var indexationErrors = await catalogService.GetIndexationErrors();
+                    var booksToIndex = Directory.EnumerateFiles(path, "*.cbz", SearchOption.AllDirectories).Select(FullPath.FromPath).ToArray();
 
-                    var path = options.Value.Path;
-                    using (ComicsReaderActivitySource.Instance.StartActivity("Index books"))
+                    discoveredBookCount = booksToIndex.Length;
+                    logger.LogInformation("Found {DiscoveredBookCount} book file(s) to index", discoveredBookCount);
+                    indexationActivity?.AddTag("DiscoveredBookCount", discoveredBookCount);
+                    indexBooksActivity?.AddTag("DiscoveredBookCount", discoveredBookCount);
+
+                    foreach (var book in booksToIndex)
                     {
-                        var indexationErrors = await catalogService.GetIndexationErrors();
-                        foreach (var book in Directory.EnumerateFiles(path, "*.cbz", SearchOption.AllDirectories).Select(FullPath.FromPath))
+                        processedBookCount++;
+
+                        var bookPath = new CatalogItemPath(path, book);
+                        foundBooks.Add(bookPath);
+
+                        using var indexBookActivity = ComicsReaderActivitySource.Instance.StartActivity("Index book");
+                        indexBookActivity?.AddTag("BookPath", bookPath.Value);
+                        indexBookActivity?.AddTag("BookIndex", processedBookCount);
+                        indexBookActivity?.AddTag("BookCount", discoveredBookCount);
+
+                        var bookStopwatch = Stopwatch.StartNew();
+                        var outcome = "Updated";
+
+                        logger.LogInformation("Start indexing book {BookIndex}/{BookCount}: '{BookPath}'", processedBookCount, discoveredBookCount, bookPath.Value);
+
+                        try
                         {
-                            logger.LogTrace("Import book '{Book}'", book);
-                            var bookPath = new CatalogItemPath(path, book);
-                            foundBooks.Add(bookPath);
-                            try
+                            var fileLength = new FileInfo(book).Length;
+                            var existingBook = books.Find(bookPath);
+
+                            if (existingBook is not null && existingBook.FileSize == fileLength && !indexationErrors.HasError(bookPath))
                             {
-                                var fileLength = new FileInfo(book).Length;
-                                var existingBook = books.Find(bookPath);
-
-                                if (existingBook is not null && existingBook.FileSize == fileLength && !indexationErrors.HasError(bookPath))
-                                    continue;
-
-                                await using var fs = File.OpenRead(book);
-
-                                string[] pages;
-                                FullPath? coverImagePath = null;
-                                await using (var archive = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true))
-                                {
-                                    pages = [.. archive.Entries.Select(entry => entry.FullName).Order(NaturalSortStringComparer.OrdinalIgnoreCase)];
-
-                                    if (!options.Value.CoverImagesPath.IsEmpty)
-                                    {
-                                        // Get the first image file as the cover
-                                        var firstImageFile = pages.FirstOrDefault(IsImageFile);
-                                        if (firstImageFile is not null)
-                                        {
-                                            coverImagePath = await ExtractAndResizeCoverImage(book, archive, firstImageFile, cancellationToken);
-                                        }
-                                    }
-                                }
-
-                                fs.Seek(0, SeekOrigin.Begin);
-                                var hash = await SHA256.HashDataAsync(fs, cancellationToken);
-                                var item = new Book
-                                {
-                                    Path = bookPath,
-                                    Title = book.NameWithoutExtension ?? throw new InvalidOperationException($"{book} does not have a name"),
-                                    FileSize = fileLength,
-                                    FileSha256 = hash,
-                                    FileNames = pages,
-                                    CoverImageFileName = coverImagePath?.Name,
-                                };
-
-                                await catalogService.AddOrUpdateBookToCatalog(item);
+                                skippedBookCount++;
+                                outcome = "Skipped";
+                                continue;
                             }
-                            catch (Exception ex)
-                            {
-                                logger.LogError(ex, "Cannot index '{BookPath}'", book.Value);
-                                await catalogService.AddIndexingError(bookPath, ex.ToString());
-                            }
-                        }
-                    }
 
-                    using (ComicsReaderActivitySource.Instance.StartActivity("Remove extra books"))
-                    {
-                        // Remove books that are not in the directory anymore
-                        foreach (var book in books)
-                        {
-                            if (!foundBooks.Contains(book.Path))
-                            {
-                                await catalogService.RemoveBookFromCatalog(book.Path);
-                            }
-                        }
-                    }
+                            await using var fs = File.OpenRead(book);
 
-                    using (ComicsReaderActivitySource.Instance.StartActivity("Remove extra cover images"))
-                    {
-                        // Remove cover image files that are not referenced in the catalog
-                        if (!options.Value.CoverImagesPath.IsEmpty && Directory.Exists(options.Value.CoverImagesPath))
-                        {
-                            var updatedBooks = await catalogService.GetBooks();
-                            var referencedCoverImages = new HashSet<string>(updatedBooks
-                                .Where(b => !string.IsNullOrEmpty(b.CoverImageFileName))
-                                .Select(b => b.CoverImageFileName!), StringComparer.Ordinal);
-
-                            foreach (var coverFile in Directory.EnumerateFiles(options.Value.CoverImagesPath, "*.*", SearchOption.TopDirectoryOnly))
+                            string[] pages;
+                            FullPath? coverImagePath = null;
+                            await using (var archive = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: true))
                             {
-                                var fileName = Path.GetFileName(coverFile);
-                                if (!referencedCoverImages.Contains(fileName))
+                                pages = [.. archive.Entries.Select(entry => entry.FullName).Order(NaturalSortStringComparer.OrdinalIgnoreCase)];
+
+                                if (!options.Value.CoverImagesPath.IsEmpty)
                                 {
-                                    try
+                                    // Get the first image file as the cover
+                                    var firstImageFile = pages.FirstOrDefault(IsImageFile);
+                                    if (firstImageFile is not null)
                                     {
-                                        File.Delete(coverFile);
-                                        logger.LogInformation("Removed orphaned cover image: {CoverFile}", fileName);
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        logger.LogWarning(ex, "Failed to delete cover image: {CoverFile}", fileName);
+                                        coverImagePath = await ExtractAndResizeCoverImage(book, archive, firstImageFile, cancellationToken);
                                     }
                                 }
                             }
+
+                            fs.Seek(0, SeekOrigin.Begin);
+                            var hash = await SHA256.HashDataAsync(fs, cancellationToken);
+                            var item = new Book
+                            {
+                                Path = bookPath,
+                                Title = book.NameWithoutExtension ?? throw new InvalidOperationException($"{book} does not have a name"),
+                                FileSize = fileLength,
+                                FileSha256 = hash,
+                                FileNames = pages,
+                                CoverImageFileName = coverImagePath?.Name,
+                            };
+
+                            await catalogService.AddOrUpdateBookToCatalog(item);
+                            updatedBookCount++;
+                        }
+                        catch (Exception ex)
+                        {
+                            failedBookCount++;
+                            outcome = "Failed";
+                            logger.LogError(ex, "Cannot index '{BookPath}'", book.Value);
+                            await catalogService.AddIndexingError(bookPath, ex.ToString());
+                            indexBookActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                        }
+                        finally
+                        {
+                            bookStopwatch.Stop();
+                            indexBookActivity?.AddTag("Outcome", outcome);
+                            indexBookActivity?.AddTag("ElapsedMilliseconds", bookStopwatch.ElapsedMilliseconds);
+                            logger.LogInformation("End indexing book {BookIndex}/{BookCount}: '{BookPath}' ({Outcome}, {ElapsedMilliseconds} ms)", processedBookCount, discoveredBookCount, bookPath.Value, outcome, bookStopwatch.ElapsedMilliseconds);
                         }
                     }
-
-                    await catalogService.CompleteIndexation();
-                    _firstIndexationTcs.TrySetResult();
                 }
-                catch (Exception ex)
+
+                using (ComicsReaderActivitySource.Instance.StartActivity("Remove extra books"))
                 {
-                    logger.LogError(ex, "Cannot index");
-                    _firstIndexationTcs.TrySetException(ex);
+                    // Remove books that are not in the directory anymore
+                    foreach (var book in books)
+                    {
+                        if (!foundBooks.Contains(book.Path))
+                        {
+                            await catalogService.RemoveBookFromCatalog(book.Path);
+                        }
+                    }
                 }
 
-                logger.LogInformation("End indexation");
+                using (ComicsReaderActivitySource.Instance.StartActivity("Remove extra cover images"))
+                {
+                    // Remove cover image files that are not referenced in the catalog
+                    if (!options.Value.CoverImagesPath.IsEmpty && Directory.Exists(options.Value.CoverImagesPath))
+                    {
+                        var updatedBooks = await catalogService.GetBooks();
+                        var referencedCoverImages = new HashSet<string>(updatedBooks
+                            .Where(b => !string.IsNullOrEmpty(b.CoverImageFileName))
+                            .Select(b => b.CoverImageFileName!), StringComparer.Ordinal);
+
+                        foreach (var coverFile in Directory.EnumerateFiles(options.Value.CoverImagesPath, "*.*", SearchOption.TopDirectoryOnly))
+                        {
+                            var fileName = Path.GetFileName(coverFile);
+                            if (!referencedCoverImages.Contains(fileName))
+                            {
+                                try
+                                {
+                                    File.Delete(coverFile);
+                                    logger.LogInformation("Removed orphaned cover image: {CoverFile}", fileName);
+                                }
+                                catch (Exception ex)
+                                {
+                                    logger.LogWarning(ex, "Failed to delete cover image: {CoverFile}", fileName);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                await catalogService.CompleteIndexation();
+                _firstIndexationTcs.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Cannot index");
+                indexationActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                _firstIndexationTcs.TrySetException(ex);
+            }
+            finally
+            {
+                indexationStopwatch.Stop();
+                indexationActivity?.AddTag("DiscoveredBookCount", discoveredBookCount);
+                indexationActivity?.AddTag("ProcessedBookCount", processedBookCount);
+                indexationActivity?.AddTag("UpdatedBookCount", updatedBookCount);
+                indexationActivity?.AddTag("SkippedBookCount", skippedBookCount);
+                indexationActivity?.AddTag("FailedBookCount", failedBookCount);
+                indexationActivity?.AddTag("ElapsedMilliseconds", indexationStopwatch.ElapsedMilliseconds);
+                logger.LogInformation("End indexation (found: {DiscoveredBookCount}, processed: {ProcessedBookCount}, updated: {UpdatedBookCount}, skipped: {SkippedBookCount}, failed: {FailedBookCount}, duration: {ElapsedMilliseconds} ms)", discoveredBookCount, processedBookCount, updatedBookCount, skippedBookCount, failedBookCount, indexationStopwatch.ElapsedMilliseconds);
             }
         }
     }
