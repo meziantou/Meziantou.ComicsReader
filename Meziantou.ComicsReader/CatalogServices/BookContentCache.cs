@@ -3,7 +3,6 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using Meziantou.Framework;
 using Meziantou.Framework.Threading;
-using Polly;
 
 namespace Meziantou.ComicsReader.CatalogServices;
 
@@ -37,9 +36,7 @@ internal sealed class BookContentCache
             activity?.AddTag("BookPath", bookPath.Value);
 
             var tmpFolder = cacheFolder + ".tmp";
-            Policy.Handle<Exception>()
-                .Retry(retryCount: 5)
-                .Execute(() => ZipFile.ExtractToDirectory(bookPath, tmpFolder, overwriteFiles: true));
+            RetryHelper.Execute(() => ZipFile.ExtractToDirectory(bookPath, tmpFolder, overwriteFiles: true), retryCount: 5);
 
             IOUtilities.Delete(cacheFolder);
             Directory.Move(tmpFolder, cacheFolder);
