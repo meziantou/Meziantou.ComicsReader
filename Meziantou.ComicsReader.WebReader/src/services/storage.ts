@@ -1,104 +1,172 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { AppSettings, BookResponse, PendingProgressUpdate } from '../types';
 
 const DB_NAME = 'comics-reader-db';
 const DB_VERSION = 1;
 
-interface ComicsReaderDB extends DBSchema {
-  settings: {
-    key: string;
-    value: AppSettings;
-  };
-  books: {
-    key: string;
-    value: {
-      path: string;
-      book: BookResponse;
-      cachedAt: string;
-      fullyDownloaded: boolean;
-    };
-    indexes: { 'by-cached-at': string };
-  };
-  covers: {
-    key: string;
-    value: {
-      path: string;
-      blob: Blob;
-    };
-  };
-  pages: {
-    key: [string, number];
-    value: {
-      bookPath: string;
-      pageIndex: number;
-      blob: Blob;
-    };
-    indexes: { 'by-book-path': string };
-  };
-  pendingUpdates: {
-    key: string;
-    value: PendingProgressUpdate;
-    indexes: { 'by-timestamp': string };
-  };
-  readingList: {
-    key: string;
-    value: {
-      bookPath: string;
-      pageIndex: number;
-      completed: boolean;
-      lastRead: string;
-    };
-  };
+type StoreName = 'settings' | 'books' | 'covers' | 'pages' | 'pendingUpdates' | 'readingList';
+
+interface CachedBookRecord {
+  path: string;
+  book: BookResponse;
+  cachedAt: string;
+  fullyDownloaded: boolean;
 }
 
-let dbInstance: IDBPDatabase<ComicsReaderDB> | null = null;
+interface CachedCoverRecord {
+  path: string;
+  blob: Blob;
+}
 
-async function getDB(): Promise<IDBPDatabase<ComicsReaderDB>> {
-  if (dbInstance) {
-    return dbInstance;
-  }
+interface CachedPageRecord {
+  bookPath: string;
+  pageIndex: number;
+  blob: Blob;
+}
 
-  dbInstance = await openDB<ComicsReaderDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      // Settings store
+interface ReadingListRecord {
+  bookPath: string;
+  pageIndex: number;
+  completed: boolean;
+  lastRead: string;
+}
+
+let dbInstance: IDBDatabase | null = null;
+
+function requestToPromise<TResult>(request: IDBRequest<TResult>): Promise<TResult> {
+  return new Promise<TResult>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
+  });
+}
+
+function transactionToPromise(transaction: IDBTransaction): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
+    transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted'));
+  });
+}
+
+function openDatabase(): Promise<IDBDatabase> {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error ?? new Error('Failed to open IndexedDB'));
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings');
       }
 
-      // Books store
       if (!db.objectStoreNames.contains('books')) {
         const booksStore = db.createObjectStore('books', { keyPath: 'path' });
         booksStore.createIndex('by-cached-at', 'cachedAt');
       }
 
-      // Covers store
       if (!db.objectStoreNames.contains('covers')) {
         db.createObjectStore('covers', { keyPath: 'path' });
       }
 
-      // Pages store
       if (!db.objectStoreNames.contains('pages')) {
         const pagesStore = db.createObjectStore('pages', { keyPath: ['bookPath', 'pageIndex'] });
         pagesStore.createIndex('by-book-path', 'bookPath');
       }
 
-      // Pending updates store
       if (!db.objectStoreNames.contains('pendingUpdates')) {
         const pendingStore = db.createObjectStore('pendingUpdates', { keyPath: 'id' });
         pendingStore.createIndex('by-timestamp', 'timestamp');
       }
 
-      // Reading list store (local copy)
       if (!db.objectStoreNames.contains('readingList')) {
         db.createObjectStore('readingList', { keyPath: 'bookPath' });
       }
-    },
+    };
   });
+}
 
+async function getDB(): Promise<IDBDatabase> {
+  if (dbInstance !== null) {
+    return dbInstance;
+  }
+
+  dbInstance = await openDatabase();
   return dbInstance;
 }
 
-// Settings
+async function getFromStore<TValue>(storeName: StoreName, key: IDBValidKey): Promise<TValue | undefined> {
+  const db = await getDB();
+  const transaction = db.transaction(storeName, 'readonly');
+  const store = transaction.objectStore(storeName);
+  const request = store.get(key) as IDBRequest<TValue | undefined>;
+  return requestToPromise(request);
+}
+
+async function getAllFromStore<TValue>(storeName: StoreName): Promise<TValue[]> {
+  const db = await getDB();
+  const transaction = db.transaction(storeName, 'readonly');
+  const store = transaction.objectStore(storeName);
+  const request = store.getAll() as IDBRequest<TValue[]>;
+  return requestToPromise(request);
+}
+
+async function getAllFromStoreIndex<TValue>(
+  storeName: StoreName,
+  indexName: string,
+  query?: IDBValidKey | IDBKeyRange,
+): Promise<TValue[]> {
+  const db = await getDB();
+  const transaction = db.transaction(storeName, 'readonly');
+  const store = transaction.objectStore(storeName);
+  const index = store.index(indexName);
+  const request = index.getAll(query) as IDBRequest<TValue[]>;
+  return requestToPromise(request);
+}
+
+async function countFromStore(storeName: StoreName): Promise<number> {
+  const db = await getDB();
+  const transaction = db.transaction(storeName, 'readonly');
+  const store = transaction.objectStore(storeName);
+  return requestToPromise(store.count());
+}
+
+async function countFromStoreIndex(storeName: StoreName, indexName: string, query?: IDBValidKey | IDBKeyRange): Promise<number> {
+  const db = await getDB();
+  const transaction = db.transaction(storeName, 'readonly');
+  const store = transaction.objectStore(storeName);
+  const index = store.index(indexName);
+  return requestToPromise(index.count(query));
+}
+
+async function putInStore(storeName: StoreName, value: unknown, key?: IDBValidKey): Promise<void> {
+  const db = await getDB();
+  const transaction = db.transaction(storeName, 'readwrite');
+  const store = transaction.objectStore(storeName);
+  if (key === undefined) {
+    await requestToPromise(store.put(value));
+  } else {
+    await requestToPromise(store.put(value, key));
+  }
+
+  await transactionToPromise(transaction);
+}
+
+async function deleteFromStore(storeName: StoreName, key: IDBValidKey): Promise<void> {
+  const db = await getDB();
+  const transaction = db.transaction(storeName, 'readwrite');
+  const store = transaction.objectStore(storeName);
+  await requestToPromise(store.delete(key));
+  await transactionToPromise(transaction);
+}
+
+async function clearStore(storeName: StoreName): Promise<void> {
+  const db = await getDB();
+  const transaction = db.transaction(storeName, 'readwrite');
+  const store = transaction.objectStore(storeName);
+  await requestToPromise(store.clear());
+  await transactionToPromise(transaction);
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   serverUrl: import.meta.env.DEV ? 'https://localhost:7183' : '/',
   token: '',
@@ -107,118 +175,94 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 export async function getSettings(): Promise<AppSettings> {
-  const db = await getDB();
-  const settings = await db.get('settings', 'app-settings');
+  const settings = await getFromStore<AppSettings>('settings', 'app-settings');
   return settings ?? DEFAULT_SETTINGS;
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
-  const db = await getDB();
-  await db.put('settings', settings, 'app-settings');
+  await putInStore('settings', settings, 'app-settings');
 }
 
-// Books cache
 export async function getCachedBook(path: string): Promise<BookResponse | null> {
-  const db = await getDB();
-  const cached = await db.get('books', path);
+  const cached = await getFromStore<CachedBookRecord>('books', path);
   return cached?.book ?? null;
 }
 
 export async function getCachedBooks(): Promise<Array<{ path: string; book: BookResponse; fullyDownloaded: boolean }>> {
-  const db = await getDB();
-  return db.getAll('books');
+  return getAllFromStore<CachedBookRecord>('books');
 }
 
 export async function cacheBook(book: BookResponse, fullyDownloaded: boolean = false): Promise<void> {
-  const db = await getDB();
-  await db.put('books', {
+  await putInStore('books', {
     path: book.path,
     book,
     cachedAt: new Date().toISOString(),
     fullyDownloaded,
-  });
+  } satisfies CachedBookRecord);
 }
 
 export async function updateBookDownloadStatus(path: string, fullyDownloaded: boolean): Promise<void> {
-  const db = await getDB();
-  const existing = await db.get('books', path);
-  if (existing) {
-    await db.put('books', {
+  const existing = await getFromStore<CachedBookRecord>('books', path);
+  if (existing !== undefined) {
+    await putInStore('books', {
       ...existing,
       fullyDownloaded,
-    });
+    } satisfies CachedBookRecord);
   }
 }
 
 export async function isBookFullyDownloaded(path: string): Promise<boolean> {
-  const db = await getDB();
-  const cached = await db.get('books', path);
+  const cached = await getFromStore<CachedBookRecord>('books', path);
   return cached?.fullyDownloaded ?? false;
 }
 
 export async function removeCachedBook(path: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['books', 'covers', 'pages'], 'readwrite');
+  const transaction = db.transaction(['books', 'covers', 'pages'], 'readwrite');
+  const booksStore = transaction.objectStore('books');
+  const coversStore = transaction.objectStore('covers');
+  const pagesStore = transaction.objectStore('pages');
 
-  await tx.objectStore('books').delete(path);
-  await tx.objectStore('covers').delete(path);
+  await requestToPromise(booksStore.delete(path));
+  await requestToPromise(coversStore.delete(path));
 
-  // Delete all pages for this book
-  const pagesStore = tx.objectStore('pages');
   const pagesIndex = pagesStore.index('by-book-path');
-  const pageKeys = await pagesIndex.getAllKeys(path);
+  const pageKeys = await requestToPromise(pagesIndex.getAllKeys(path));
   for (const key of pageKeys) {
-    await pagesStore.delete(key);
+    await requestToPromise(pagesStore.delete(key));
   }
 
-  await tx.done;
-
-  // Note: We don't clean up the in-memory cover URL cache here because
-  // the cover might still be displayed in the UI (e.g., in filtered views).
-  // The blob URLs will be automatically cleaned up when the page is refreshed
-  // or when the browser's garbage collector runs.
+  await transactionToPromise(transaction);
 }
 
-// Covers cache
 export async function getCachedCover(path: string): Promise<Blob | null> {
-  const db = await getDB();
-  const cached = await db.get('covers', path);
+  const cached = await getFromStore<CachedCoverRecord>('covers', path);
   return cached?.blob ?? null;
 }
 
 export async function cacheCover(path: string, blob: Blob): Promise<void> {
-  const db = await getDB();
-  await db.put('covers', { path, blob });
+  await putInStore('covers', { path, blob } satisfies CachedCoverRecord);
 }
 
-// Pages cache
 export async function getCachedPage(bookPath: string, pageIndex: number): Promise<Blob | null> {
-  const db = await getDB();
-  const cached = await db.get('pages', [bookPath, pageIndex]);
+  const cached = await getFromStore<CachedPageRecord>('pages', [bookPath, pageIndex]);
   return cached?.blob ?? null;
 }
 
 export async function cachePage(bookPath: string, pageIndex: number, blob: Blob): Promise<void> {
-  const db = await getDB();
-  await db.put('pages', { bookPath, pageIndex, blob });
+  await putInStore('pages', { bookPath, pageIndex, blob } satisfies CachedPageRecord);
 }
 
 export async function getCachedPageCount(bookPath: string): Promise<number> {
-  const db = await getDB();
-  const index = db.transaction('pages').store.index('by-book-path');
-  return index.count(bookPath);
+  return countFromStoreIndex('pages', 'by-book-path', bookPath);
 }
 
 export async function getCachedPageIndices(bookPath: string): Promise<number[]> {
-  const db = await getDB();
-  const index = db.transaction('pages').store.index('by-book-path');
-  const pages = await index.getAll(bookPath);
+  const pages = await getAllFromStoreIndex<CachedPageRecord>('pages', 'by-book-path', bookPath);
   return pages.map(p => p.pageIndex).sort((a, b) => a - b);
 }
 
-// Pending updates (offline queue)
 export async function addPendingUpdate(bookPath: string, pageIndex: number): Promise<void> {
-  const db = await getDB();
   const id = `${bookPath}-${Date.now()}`;
   const update: PendingProgressUpdate = {
     id,
@@ -226,72 +270,66 @@ export async function addPendingUpdate(bookPath: string, pageIndex: number): Pro
     pageIndex,
     timestamp: new Date().toISOString(),
   };
-  await db.put('pendingUpdates', update);
+  await putInStore('pendingUpdates', update);
 }
 
 export async function getPendingUpdates(): Promise<PendingProgressUpdate[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('pendingUpdates', 'by-timestamp');
+  return getAllFromStoreIndex<PendingProgressUpdate>('pendingUpdates', 'by-timestamp');
 }
 
 export async function removePendingUpdate(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('pendingUpdates', id);
+  await deleteFromStore('pendingUpdates', id);
 }
 
 export async function clearPendingUpdatesForBook(bookPath: string): Promise<void> {
+  const updates = await getAllFromStore<PendingProgressUpdate>('pendingUpdates');
   const db = await getDB();
-  const updates = await db.getAll('pendingUpdates');
-  const tx = db.transaction('pendingUpdates', 'readwrite');
+  const transaction = db.transaction('pendingUpdates', 'readwrite');
+  const store = transaction.objectStore('pendingUpdates');
   for (const update of updates) {
     if (update.bookPath === bookPath) {
-      await tx.store.delete(update.id);
+      await requestToPromise(store.delete(update.id));
     }
   }
-  await tx.done;
+
+  await transactionToPromise(transaction);
 }
 
-// Local reading list (for offline access)
 export async function getLocalReadingList(): Promise<Map<string, { pageIndex: number; completed: boolean; lastRead: string }>> {
-  const db = await getDB();
-  const items = await db.getAll('readingList');
+  const items = await getAllFromStore<ReadingListRecord>('readingList');
   return new Map(items.map(item => [item.bookPath, { pageIndex: item.pageIndex, completed: item.completed, lastRead: item.lastRead }]));
 }
 
 export async function updateLocalReadingListItem(bookPath: string, pageIndex: number, completed: boolean): Promise<void> {
-  const db = await getDB();
-  await db.put('readingList', {
+  await putInStore('readingList', {
     bookPath,
     pageIndex,
     completed,
     lastRead: new Date().toISOString(),
-  });
+  } satisfies ReadingListRecord);
 }
 
 export async function removeLocalReadingListItem(bookPath: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('readingList', bookPath);
+  await deleteFromStore('readingList', bookPath);
 }
 
 export async function syncReadingListFromServer(
   items: Array<{ bookPath: string; pageIndex: number; completed: boolean; lastRead: string }>
 ): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction('readingList', 'readwrite');
+  const transaction = db.transaction('readingList', 'readwrite');
+  const store = transaction.objectStore('readingList');
 
-  // Clear existing and add new
-  await tx.store.clear();
+  await requestToPromise(store.clear());
   for (const item of items) {
-    await tx.store.put(item);
+    await requestToPromise(store.put(item));
   }
 
-  await tx.done;
+  await transactionToPromise(transaction);
 }
 
-// Cleanup: remove books that are no longer available
 export async function cleanupRemovedBooks(availableBookPaths: Set<string>): Promise<void> {
-  const db = await getDB();
-  const cachedBooks = await db.getAll('books');
+  const cachedBooks = await getAllFromStore<CachedBookRecord>('books');
 
   for (const cached of cachedBooks) {
     if (!availableBookPaths.has(cached.path)) {
@@ -300,50 +338,41 @@ export async function cleanupRemovedBooks(availableBookPaths: Set<string>): Prom
   }
 }
 
-// Cleanup: remove completed books from cache
 export async function cleanupCompletedBooks(completedBookPaths: Set<string>): Promise<void> {
   for (const path of completedBookPaths) {
     await removeCachedBook(path);
   }
 }
 
-// Clear all cached pages
 export async function clearAllCachedPages(): Promise<void> {
-  const db = await getDB();
-  await db.clear('pages');
+  await clearStore('pages');
 }
 
-// Clear all cached covers
 export async function clearAllCachedCovers(): Promise<void> {
-  const db = await getDB();
-  await db.clear('covers');
+  await clearStore('covers');
 }
 
-// Clear all cached books (including covers and pages)
 export async function clearAllCachedBooks(): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['books', 'covers', 'pages'], 'readwrite');
-  await tx.objectStore('books').clear();
-  await tx.objectStore('covers').clear();
-  await tx.objectStore('pages').clear();
-  await tx.done;
+  const transaction = db.transaction(['books', 'covers', 'pages'], 'readwrite');
+  await requestToPromise(transaction.objectStore('books').clear());
+  await requestToPromise(transaction.objectStore('covers').clear());
+  await requestToPromise(transaction.objectStore('pages').clear());
+  await transactionToPromise(transaction);
 }
 
-// Get total size estimates for cached data
 export async function getCacheSizeEstimates(): Promise<{
   books: number;
   covers: number;
   pages: number;
   totalSizeBytes?: number;
 }> {
-  const db = await getDB();
   const [books, covers, pages] = await Promise.all([
-    db.count('books'),
-    db.count('covers'),
-    db.count('pages'),
+    countFromStore('books'),
+    countFromStore('covers'),
+    countFromStore('pages'),
   ]);
-  
-  // Get storage estimate if available
+
   let totalSizeBytes: number | undefined;
   if ('storage' in navigator && 'estimate' in navigator.storage) {
     try {
@@ -353,13 +382,12 @@ export async function getCacheSizeEstimates(): Promise<{
       // Ignore if not available
     }
   }
-  
+
   return { books, covers, pages, totalSizeBytes };
 }
 
-// For testing: reset the database instance
 export function _resetDBInstance(): void {
-  if (dbInstance) {
+  if (dbInstance !== null) {
     dbInstance.close();
     dbInstance = null;
   }
