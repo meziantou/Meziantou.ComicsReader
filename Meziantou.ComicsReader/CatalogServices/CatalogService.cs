@@ -7,7 +7,6 @@ using System.Text.Json.Serialization.Metadata;
 using Meziantou.Framework;
 using Meziantou.Framework.Threading;
 using Microsoft.Extensions.Options;
-using Polly;
 
 namespace Meziantou.ComicsReader.CatalogServices;
 
@@ -15,8 +14,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
 {
     private const string CatalogFileName = "catalog.json.gz";
     private const string ReadingListFileName = "readinglist.json.gz";
-
-    private static readonly Policy RetryPolicy = Policy.Handle<Exception>().WaitAndRetry(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
+    private static readonly Func<int, TimeSpan> RetryDelay = retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt));
 
     private readonly BookContentCache _cache = new(FullPath.GetTempPath() / "books_cache");
     private readonly AsyncLock _lock = new();
@@ -36,7 +34,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
                 await JsonSerializer.SerializeAsync(gz, item, CatalogJsonContext.Default.PersistedCatalog);
             }
 
-            RetryPolicy.Execute(() => File.Move(tempFullPath, fullPath, overwrite: true));
+            RetryHelper.Execute(() => File.Move(tempFullPath, fullPath, overwrite: true), retryCount: 3, delayProvider: RetryDelay);
         }
     }
 
@@ -54,7 +52,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
                 await JsonSerializer.SerializeAsync(gz, item, CatalogJsonContext.Default.PersistedReadingList);
             }
 
-            RetryPolicy.Execute(() => File.Move(tempFullPath, fullPath, overwrite: true));
+            RetryHelper.Execute(() => File.Move(tempFullPath, fullPath, overwrite: true), retryCount: 3, delayProvider: RetryDelay);
         }
     }
 
@@ -80,25 +78,23 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
 
             static Task<T?> Deserialize<T>(FullPath path, JsonTypeInfo<T> jsonTypeInfo) where T : class
             {
-                return Policy.Handle<Exception>()
-                    .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)))
-                    .ExecuteAsync(async () =>
+                return RetryHelper.ExecuteAsync(async () =>
+                {
+                    try
                     {
-                        try
-                        {
-                            await using var stream = File.OpenRead(path);
-                            await using var gz = new GZipStream(stream, CompressionMode.Decompress);
-                            return await JsonSerializer.DeserializeAsync(gz, jsonTypeInfo);
-                        }
-                        catch (FileNotFoundException)
-                        {
-                            return null;
-                        }
-                        catch (DirectoryNotFoundException)
-                        {
-                            return null;
-                        }
-                    });
+                        await using var stream = File.OpenRead(path);
+                        await using var gz = new GZipStream(stream, CompressionMode.Decompress);
+                        return await JsonSerializer.DeserializeAsync(gz, jsonTypeInfo);
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        return null;
+                    }
+                    catch (DirectoryNotFoundException)
+                    {
+                        return null;
+                    }
+                }, retryCount: 3, delayProvider: RetryDelay);
             }
         }
 
@@ -357,7 +353,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
                 var originalPath = GetBookPath(path);
                 var completedPath = options.Value.CompletedPath / path;
                 completedPath.CreateParentDirectory();
-                RetryPolicy.Execute(() => File.Move(originalPath, completedPath));
+                RetryHelper.Execute(() => File.Move(originalPath, completedPath), retryCount: 3, delayProvider: RetryDelay);
 
                 var existingBook = _catalog.Books.Find(path);
                 if (existingBook is not null)
