@@ -97,9 +97,9 @@ export function SettingsPage() {
     }
   };
 
-  const handleReindex = async () => {
+  const handleRefreshCatalog = async () => {
     if (!online) {
-      setMessage('Cannot reindex while offline');
+      setMessage('Cannot refresh catalog while offline');
       return;
     }
 
@@ -108,9 +108,9 @@ export function SettingsPage() {
 
     try {
       await triggerReindex();
-      setMessage('Reindex triggered successfully');
+      setMessage('Catalog refreshed successfully');
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to trigger reindex');
+      setMessage(err instanceof Error ? err.message : 'Failed to refresh catalog');
     } finally {
       setIsReindexing(false);
     }
@@ -266,13 +266,13 @@ export function SettingsPage() {
       <section className="settings-section">
         <h2>Server Actions</h2>
         <button
-          onClick={handleReindex}
+          onClick={handleRefreshCatalog}
           disabled={isReindexing || !online}
           className="action-button"
         >
-          {isReindexing ? 'Triggering...' : 'Trigger Rescan'}
+          {isReindexing ? 'Refreshing...' : 'Refresh Catalog'}
         </button>
-        {!online && <p className="form-help">Rescan not available while offline</p>}
+        {!online && <p className="form-help">Catalog refresh not available while offline</p>}
       </section>
 
       <section className="settings-section version-info">
