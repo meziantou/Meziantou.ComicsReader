@@ -82,6 +82,12 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+const INDEXING_POLL_INTERVAL_MS = 1000;
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
 export function useApp(): AppContextValue {
   const context = useContext(AppContext);
   if (!context) {
@@ -303,8 +309,15 @@ export function AppProvider({ children }: AppProviderProps) {
   // Trigger reindex
   const triggerReindex = useCallback(async () => {
     if (!apiClient) return;
+
     await apiClient.triggerReindex();
-  }, [apiClient]);
+
+    while ((await apiClient.getIndexingStatus()).isInProgress) {
+      await delay(INDEXING_POLL_INTERVAL_MS);
+    }
+
+    await fetchData(apiClient, false);
+  }, [apiClient, fetchData]);
 
   // Initialize
   useEffect(() => {
