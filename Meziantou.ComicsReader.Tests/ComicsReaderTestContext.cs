@@ -19,7 +19,7 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
     private string? _authToken;
 
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope")]
-    public ComicsReaderTestContext(string? authToken = null)
+    public ComicsReaderTestContext(string? authToken = null, TimeSpan? refreshPeriod = null)
     {
         CancellationToken = TestContext.Current.CancellationToken;
 
@@ -35,6 +35,7 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
                     options.CompletedPath = _booksCompletedFolder.FullPath;
                     options.IndexPath = _indexFolder.FullPath;
                     options.AuthToken = authToken;
+                    options.RefreshPeriod = refreshPeriod ?? options.RefreshPeriod;
                 });
             });
         });
@@ -86,12 +87,12 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
     {
         var url = $"/api/v1/books/{Uri.EscapeDataString(path)}/pages/{page}";
         using var client = _applicationFactory.CreateDefaultClient();
-        
+
         if (_authToken is not null)
         {
             client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _authToken);
         }
-        
+
         var data = await client.GetByteArrayAsync(url, CancellationToken);
         return (url, data);
     }

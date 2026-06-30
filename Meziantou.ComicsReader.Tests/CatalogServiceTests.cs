@@ -62,6 +62,23 @@ public sealed class CatalogServiceTests
         Assert.Equal(2, books.Count);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task DisableAutomaticRescan(int refreshPeriodSeconds)
+    {
+        await using var context = new ComicsReaderTestContext(refreshPeriod: TimeSpan.FromSeconds(refreshPeriodSeconds));
+        context.AddBook("book1.cbz");
+
+        await context.RunIndexer();
+        context.AddBook("book2.cbz");
+        await Task.Delay(TimeSpan.FromMilliseconds(200), context.CancellationToken);
+
+        var books = await context.CatalogService.GetBooks();
+
+        Assert.Equal(["book1.cbz"], books.Select(item => item.Path.Value));
+    }
+
     [Fact]
     public async Task GetPageData()
     {
@@ -87,7 +104,7 @@ public sealed class CatalogServiceTests
         context.AddBook(bookPath, pageCount: 2);
 
         await context.RunIndexer();
-        
+
         // Test with valid token
         context.SetAuthToken(Token);
         var (url, data) = await context.GetPageData(bookPath, page: 0);
@@ -104,7 +121,7 @@ public sealed class CatalogServiceTests
         context.AddBook(bookPath, pageCount: 2);
 
         await context.RunIndexer();
-        
+
         // Test with invalid token should throw
         context.SetAuthToken("wrong-token");
         await Assert.ThrowsAsync<HttpRequestException>(async () =>
@@ -122,7 +139,7 @@ public sealed class CatalogServiceTests
         context.AddBook(bookPath, pageCount: 2);
 
         await context.RunIndexer();
-        
+
         // Test without token when required should throw
         context.SetAuthToken(null);
         await Assert.ThrowsAsync<HttpRequestException>(async () =>
@@ -140,7 +157,7 @@ public sealed class CatalogServiceTests
         context.AddBook(bookPath, pageCount: 2);
 
         await context.RunIndexer();
-        
+
         // Test without token when not required should succeed
         var (url, data) = await context.GetPageData(bookPath, page: 0);
         Assert.NotEmpty(data);

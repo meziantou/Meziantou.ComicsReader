@@ -26,10 +26,18 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Index(stoppingToken);
+
+        if (options.Value.RefreshPeriod <= TimeSpan.Zero)
+        {
+            logger.LogInformation("Automatic indexation is disabled because the refresh period is {RefreshPeriod}", options.Value.RefreshPeriod);
+            return;
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Index(stoppingToken);
             await Task.Delay(options.Value.RefreshPeriod, stoppingToken);
+            await Index(stoppingToken);
         }
     }
 
