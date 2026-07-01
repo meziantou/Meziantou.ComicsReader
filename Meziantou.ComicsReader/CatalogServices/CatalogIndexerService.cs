@@ -29,6 +29,7 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
         if (options.Value.RefreshPeriod <= TimeSpan.Zero)
         {
             logger.LogInformation("Automatic indexation is disabled because the refresh period is {RefreshPeriod}", options.Value.RefreshPeriod);
+            await Index(stoppingToken);
             return;
         }
 
