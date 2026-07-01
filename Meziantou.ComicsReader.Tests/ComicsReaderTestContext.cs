@@ -11,17 +11,28 @@ namespace Meziantou.ComicsReader.Tests;
 
 internal sealed class ComicsReaderTestContext : IAsyncDisposable
 {
-    private readonly TemporaryDirectory _booksFolder = TemporaryDirectory.Create();
-    private readonly TemporaryDirectory _booksCompletedFolder = TemporaryDirectory.Create();
-    private readonly TemporaryDirectory _indexFolder = TemporaryDirectory.Create();
+    private readonly TemporaryDirectory? _booksFolder;
+    private readonly TemporaryDirectory? _booksCompletedFolder;
+    private readonly TemporaryDirectory? _indexFolder;
+    private readonly FullPath _booksPath;
+    private readonly FullPath _booksCompletedPath;
+    private readonly FullPath _indexPath;
 
     private readonly WebApplicationFactory<Program> _applicationFactory;
     private string? _authToken;
 
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope")]
-    public ComicsReaderTestContext(string? authToken = null, TimeSpan? refreshPeriod = null)
+    public ComicsReaderTestContext(
+        string? authToken = null,
+        TimeSpan? refreshPeriod = null,
+        FullPath? booksPath = null,
+        FullPath? booksCompletedPath = null,
+        FullPath? indexPath = null)
     {
         CancellationToken = TestContext.Current.CancellationToken;
+        _booksPath = InitializePath(booksPath, out _booksFolder);
+        _booksCompletedPath = InitializePath(booksCompletedPath, out _booksCompletedFolder);
+        _indexPath = InitializePath(indexPath, out _indexFolder);
 
         _applicationFactory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
@@ -31,9 +42,9 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
             {
                 services.Configure<CatalogConfiguration>(options =>
                 {
-                    options.Path = _booksFolder.FullPath;
-                    options.CompletedPath = _booksCompletedFolder.FullPath;
-                    options.IndexPath = _indexFolder.FullPath;
+                    options.Path = _booksPath;
+                    options.CompletedPath = _booksCompletedPath;
+                    options.IndexPath = _indexPath;
                     options.AuthToken = authToken;
                     options.RefreshPeriod = refreshPeriod ?? options.RefreshPeriod;
                 });
@@ -43,6 +54,7 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
 
     public CancellationToken CancellationToken { get; }
     public CatalogService CatalogService => _applicationFactory.Services.GetRequiredService<CatalogService>();
+    public CatalogIndexerService CatalogIndexerService => _applicationFactory.Services.GetRequiredService<CatalogIndexerService>();
 
     public void SetAuthToken(string? token)
     {
@@ -62,7 +74,7 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
 
     public void AddBook(string name, int pageCount = 2)
     {
-        var path = _booksFolder.FullPath / name;
+        var path = _booksPath / name;
         AddBookCore(pageCount, path);
     }
 
@@ -100,8 +112,31 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _applicationFactory.DisposeAsync();
-        await _booksFolder.DisposeAsync();
-        await _booksCompletedFolder.DisposeAsync();
-        await _indexFolder.DisposeAsync();
+        if (_booksFolder is not null)
+        {
+            await _booksFolder.DisposeAsync();
+        }
+
+        if (_booksCompletedFolder is not null)
+        {
+            await _booksCompletedFolder.DisposeAsync();
+        }
+
+        if (_indexFolder is not null)
+        {
+            await _indexFolder.DisposeAsync();
+        }
+    }
+
+    private static FullPath InitializePath(FullPath? path, out TemporaryDirectory? temporaryDirectory)
+    {
+        if (path is { } value)
+        {
+            temporaryDirectory = null;
+            return value;
+        }
+
+        temporaryDirectory = TemporaryDirectory.Create();
+        return temporaryDirectory.FullPath;
     }
 }

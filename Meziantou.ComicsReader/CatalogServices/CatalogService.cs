@@ -399,7 +399,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
         using (await _lock.LockAsync())
         {
             await LoadIfNeeded();
-            return _catalog.LastIndexationDate = DateTimeOffset.UtcNow;
+            return _catalog.LastIndexationDate;
         }
     }
 

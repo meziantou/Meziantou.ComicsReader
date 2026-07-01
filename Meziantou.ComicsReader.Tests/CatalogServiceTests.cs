@@ -62,21 +62,152 @@ public sealed class CatalogServiceTests
         Assert.Equal(2, books.Count);
     }
 
+    [Fact]
+    public async Task StartupUsesFreshCatalogCache()
+    {
+        await using var booksFolder = TemporaryDirectory.Create();
+        await using var completedFolder = TemporaryDirectory.Create();
+        await using var indexFolder = TemporaryDirectory.Create();
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromDays(1),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book1.cbz");
+            await context.RunIndexer();
+        }
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromDays(1),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book2.cbz");
+            await context.RunIndexer();
+
+            var books = await context.CatalogService.GetBooks();
+
+            Assert.Equal(["book1.cbz"], books.Select(item => item.Path.Value));
+        }
+    }
+
+    [Fact]
+    public async Task ManualReindexIgnoresFreshCatalogCache()
+    {
+        await using var booksFolder = TemporaryDirectory.Create();
+        await using var completedFolder = TemporaryDirectory.Create();
+        await using var indexFolder = TemporaryDirectory.Create();
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromDays(1),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book1.cbz");
+            await context.RunIndexer();
+        }
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromDays(1),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book2.cbz");
+            await context.RunIndexer();
+            await context.CatalogIndexerService.Reindex();
+
+            var books = await context.CatalogService.GetBooks();
+
+            Assert.Equal(["book1.cbz", "book2.cbz"], books.Select(item => item.Path.Value));
+        }
+    }
+
+    [Fact]
+    public async Task StartupSkipDoesNotForceIndexOnNextWakeUp()
+    {
+        await using var booksFolder = TemporaryDirectory.Create();
+        await using var completedFolder = TemporaryDirectory.Create();
+        await using var indexFolder = TemporaryDirectory.Create();
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromSeconds(2),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book1.cbz");
+            await context.RunIndexer();
+        }
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromSeconds(2),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book2.cbz");
+            await context.RunIndexer();
+            await Task.Delay(TimeSpan.FromMilliseconds(1200), context.CancellationToken);
+
+            var books = await context.CatalogService.GetBooks();
+
+            Assert.Equal(["book1.cbz"], books.Select(item => item.Path.Value));
+        }
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
     public async Task DisableAutomaticRescan(int refreshPeriodSeconds)
     {
+        await using var booksFolder = TemporaryDirectory.Create();
+        await using var completedFolder = TemporaryDirectory.Create();
+        await using var indexFolder = TemporaryDirectory.Create();
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromDays(1),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book1.cbz");
+            await context.RunIndexer();
+        }
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromSeconds(refreshPeriodSeconds),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book2.cbz");
+            await context.RunIndexer();
+            await Task.Delay(TimeSpan.FromMilliseconds(200), context.CancellationToken);
+
+            var books = await context.CatalogService.GetBooks();
+
+            Assert.Equal(["book1.cbz"], books.Select(item => item.Path.Value));
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task DisableAutomaticRescanWithoutPersistedCatalogDoesNotIndex(int refreshPeriodSeconds)
+    {
         await using var context = new ComicsReaderTestContext(refreshPeriod: TimeSpan.FromSeconds(refreshPeriodSeconds));
         context.AddBook("book1.cbz");
 
         await context.RunIndexer();
-        context.AddBook("book2.cbz");
-        await Task.Delay(TimeSpan.FromMilliseconds(200), context.CancellationToken);
 
         var books = await context.CatalogService.GetBooks();
 
-        Assert.Equal(["book1.cbz"], books.Select(item => item.Path.Value));
+        Assert.Empty(books);
     }
 
     [Fact]
