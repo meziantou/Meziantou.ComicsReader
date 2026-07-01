@@ -26,19 +26,53 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await Index(stoppingToken);
-
         if (options.Value.RefreshPeriod <= TimeSpan.Zero)
         {
+            await Index(stoppingToken);
+
             logger.LogInformation("Automatic indexation is disabled because the refresh period is {RefreshPeriod}", options.Value.RefreshPeriod);
             return;
         }
 
+        await IndexIfNeeded(stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(options.Value.RefreshPeriod, stoppingToken);
+            var delay = await GetDelayBeforeNextIndexation();
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay, stoppingToken);
+            }
+
             await Index(stoppingToken);
         }
+    }
+
+    private async Task IndexIfNeeded(CancellationToken cancellationToken)
+    {
+        var delay = await GetDelayBeforeNextIndexation();
+        if (delay <= TimeSpan.Zero)
+        {
+            await Index(cancellationToken);
+            return;
+        }
+
+        logger.LogInformation("Skip indexation because the last indexation is still fresh for {Delay}", delay);
+        _firstIndexationTcs.TrySetResult();
+    }
+
+    private async Task<TimeSpan> GetDelayBeforeNextIndexation()
+    {
+        var lastIndexationDate = await catalogService.GetLastIndexationDate();
+        if (lastIndexationDate == default)
+            return TimeSpan.Zero;
+
+        var nextIndexationDate = lastIndexationDate + options.Value.RefreshPeriod;
+        var delay = nextIndexationDate - DateTimeOffset.UtcNow;
+        if (delay <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+
+        return delay;
     }
 
     private async Task<FullPath?> ExtractAndResizeCoverImage(FullPath bookPath, ZipArchive archive, string firstImageFileName, CancellationToken cancellationToken)
