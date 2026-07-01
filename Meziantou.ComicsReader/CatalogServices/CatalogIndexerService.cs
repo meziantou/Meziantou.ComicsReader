@@ -28,6 +28,7 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
     {
         if (options.Value.RefreshPeriod <= TimeSpan.Zero)
         {
+            _firstIndexationTcs.TrySetResult();
             logger.LogInformation("Automatic indexation is disabled because the refresh period is {RefreshPeriod}", options.Value.RefreshPeriod);
             if (!_firstIndexationTcs.Task.IsCompleted)
             {
