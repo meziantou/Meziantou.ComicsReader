@@ -28,37 +28,27 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
     {
         if (options.Value.RefreshPeriod <= TimeSpan.Zero)
         {
-            await Index(stoppingToken);
-
             logger.LogInformation("Automatic indexation is disabled because the refresh period is {RefreshPeriod}", options.Value.RefreshPeriod);
             return;
         }
-
-        await IndexIfNeeded(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             var delay = await GetDelayBeforeNextIndexation();
             if (delay > TimeSpan.Zero)
             {
+                if (!_firstIndexationTcs.Task.IsCompleted)
+                {
+                    logger.LogInformation("Skip indexation because the last indexation is still fresh for {Delay}", delay);
+                    _firstIndexationTcs.TrySetResult();
+                }
+
                 await Task.Delay(delay, stoppingToken);
+                continue;
             }
 
             await Index(stoppingToken);
         }
-    }
-
-    private async Task IndexIfNeeded(CancellationToken cancellationToken)
-    {
-        var delay = await GetDelayBeforeNextIndexation();
-        if (delay <= TimeSpan.Zero)
-        {
-            await Index(cancellationToken);
-            return;
-        }
-
-        logger.LogInformation("Skip indexation because the last indexation is still fresh for {Delay}", delay);
-        _firstIndexationTcs.TrySetResult();
     }
 
     private async Task<TimeSpan> GetDelayBeforeNextIndexation()

@@ -127,6 +127,39 @@ public sealed class CatalogServiceTests
         }
     }
 
+    [Fact]
+    public async Task StartupSkipDoesNotForceIndexOnNextWakeUp()
+    {
+        await using var booksFolder = TemporaryDirectory.Create();
+        await using var completedFolder = TemporaryDirectory.Create();
+        await using var indexFolder = TemporaryDirectory.Create();
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromSeconds(2),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book1.cbz");
+            await context.RunIndexer();
+        }
+
+        await using (var context = new ComicsReaderTestContext(
+            refreshPeriod: TimeSpan.FromSeconds(2),
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book2.cbz");
+            await context.RunIndexer();
+            await Task.Delay(TimeSpan.FromMilliseconds(1200), context.CancellationToken);
+
+            var books = await context.CatalogService.GetBooks();
+
+            Assert.Equal(["book1.cbz"], books.Select(item => item.Path.Value));
+        }
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
