@@ -294,4 +294,46 @@ public sealed class CatalogServiceTests
         Assert.NotEmpty(data);
         Assert.Equal($"/api/v1/books/{Uri.EscapeDataString(bookPath)}/pages/0", url);
     }
+
+    [Fact]
+    public async Task ReindexSynchronizesBooksCache()
+    {
+        await using var context = new ComicsReaderTestContext(refreshPeriod: TimeSpan.Zero, copyBooksToCache: true);
+        context.AddBook("book1.cbz", pageCount: 2);
+
+        await context.CatalogIndexerService.Reindex();
+
+        var sourceBookPath = context.CatalogService.GetBookPath(new CatalogItemPath("book1.cbz"));
+        var cachedBookPath = context.BooksCachePath / "book1.cbz";
+        Assert.True(File.Exists(cachedBookPath));
+        Assert.Equal(new FileInfo(sourceBookPath).Length, new FileInfo(cachedBookPath).Length);
+
+        var extraBookPath = context.BooksCachePath / "extra.cbz";
+        extraBookPath.CreateParentDirectory();
+        File.WriteAllBytes(extraBookPath, [1, 2, 3, 4]);
+
+        context.AddBook("book1.cbz", pageCount: 4);
+        context.AddBook("book2.cbz", pageCount: 1);
+
+        await context.CatalogIndexerService.Reindex();
+
+        Assert.False(File.Exists(extraBookPath));
+        Assert.True(File.Exists(context.BooksCachePath / "book2.cbz"));
+        Assert.Equal(new FileInfo(sourceBookPath).Length, new FileInfo(cachedBookPath).Length);
+    }
+
+    [Fact]
+    public async Task GetPageDataUsesBooksCacheWhenEnabled()
+    {
+        await using var context = new ComicsReaderTestContext(refreshPeriod: TimeSpan.Zero, copyBooksToCache: true);
+        var bookPath = "book1.cbz";
+        context.AddBook(bookPath, pageCount: 2);
+
+        await context.CatalogIndexerService.Reindex();
+
+        File.Delete(context.CatalogService.GetBookPath(new CatalogItemPath(bookPath)));
+
+        var (_, data) = await context.GetPageData(bookPath, page: 0);
+        Assert.NotEmpty(data);
+    }
 }

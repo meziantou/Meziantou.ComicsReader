@@ -25,6 +25,7 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
     public ComicsReaderTestContext(
         string? authToken = null,
         TimeSpan? refreshPeriod = null,
+        bool? copyBooksToCache = null,
         FullPath? booksPath = null,
         FullPath? booksCompletedPath = null,
         FullPath? indexPath = null)
@@ -47,6 +48,7 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
                     options.IndexPath = _indexPath;
                     options.AuthToken = authToken;
                     options.RefreshPeriod = refreshPeriod ?? options.RefreshPeriod;
+                    options.CopyBooksToCache = copyBooksToCache ?? options.CopyBooksToCache;
                 });
             });
         });
@@ -55,6 +57,7 @@ internal sealed class ComicsReaderTestContext : IAsyncDisposable
     public CancellationToken CancellationToken { get; }
     public CatalogService CatalogService => _applicationFactory.Services.GetRequiredService<CatalogService>();
     public CatalogIndexerService CatalogIndexerService => _applicationFactory.Services.GetRequiredService<CatalogIndexerService>();
+    public FullPath BooksCachePath => _indexPath / CatalogService.BookFilesCacheDirectoryName;
 
     public void SetAuthToken(string? token)
     {

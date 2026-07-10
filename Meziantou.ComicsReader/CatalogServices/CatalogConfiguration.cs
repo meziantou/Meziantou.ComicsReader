@@ -4,6 +4,7 @@ namespace Meziantou.ComicsReader.CatalogServices;
 
 internal sealed class CatalogConfiguration
 {
+    public bool CopyBooksToCache { get; set; }
     public FullPath CoverImagesPath { get; set; }
     public FullPath Path { get; set; }
     public FullPath CompletedPath { get; set; }

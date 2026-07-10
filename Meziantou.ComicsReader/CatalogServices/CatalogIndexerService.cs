@@ -199,14 +199,18 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
 
             try
             {
+                var booksPath = options.Value.Path;
+                if (options.Value.CopyBooksToCache)
+                {
+                    booksPath = await SynchronizeBooksCache(cancellationToken);
+                }
+
                 var books = await catalogService.GetBooks();
                 var foundBooks = new HashSet<CatalogItemPath>();
-
-                var path = options.Value.Path;
                 using (var indexBooksActivity = ComicsReaderActivitySource.Instance.StartActivity("Index books"))
                 {
                     var indexationErrors = await catalogService.GetIndexationErrors();
-                    var booksToIndex = Directory.EnumerateFiles(path, "*.cbz", SearchOption.AllDirectories).Select(FullPath.FromPath).ToArray();
+                    var booksToIndex = Directory.EnumerateFiles(booksPath, "*.cbz", SearchOption.AllDirectories).Select(FullPath.FromPath).ToArray();
 
                     discoveredBookCount = booksToIndex.Length;
                     logger.LogInformation("Found {DiscoveredBookCount} book file(s) to index", discoveredBookCount);
@@ -217,7 +221,7 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
                     {
                         processedBookCount++;
 
-                        var bookPath = new CatalogItemPath(path, book);
+                        var bookPath = new CatalogItemPath(booksPath, book);
                         foundBooks.Add(bookPath);
 
                         using var indexBookActivity = ComicsReaderActivitySource.Instance.StartActivity("Index book");
@@ -362,5 +366,55 @@ internal sealed class CatalogIndexerService(IOptions<CatalogConfiguration> optio
     {
         var extension = Path.GetExtension(path).ToUpperInvariant();
         return extension is ".JPG" or ".JPEG" or ".PNG" or ".GIF" or ".BMP" or ".AVIF" or ".TIFF" or ".HEIC";
+    }
+
+    private Task<FullPath> SynchronizeBooksCache(CancellationToken cancellationToken)
+    {
+        using var activity = ComicsReaderActivitySource.Instance.StartActivity("Synchronize books cache");
+        var sourcePath = options.Value.Path;
+        var cachePath = catalogService.GetBookFilesCacheRootPath();
+        Directory.CreateDirectory(cachePath);
+
+        var sourceBooks = Directory.EnumerateFiles(sourcePath, "*.cbz", SearchOption.AllDirectories).Select(FullPath.FromPath).ToArray();
+        var expectedBooks = new HashSet<CatalogItemPath>();
+        var copiedBookCount = 0;
+        var removedBookCount = 0;
+
+        foreach (var sourceBookPath in sourceBooks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var relativeBookPath = new CatalogItemPath(sourcePath, sourceBookPath);
+            expectedBooks.Add(relativeBookPath);
+
+            var cacheBookPath = cachePath / relativeBookPath.Value;
+            var sourceLength = new FileInfo(sourceBookPath).Length;
+            var shouldCopy = !File.Exists(cacheBookPath) || new FileInfo(cacheBookPath).Length != sourceLength;
+            if (!shouldCopy)
+                continue;
+
+            cacheBookPath.CreateParentDirectory();
+            RetryHelper.Execute(() => File.Copy(sourceBookPath, cacheBookPath, overwrite: true), retryCount: 3);
+            copiedBookCount++;
+        }
+
+        foreach (var cachedBookPath in Directory.EnumerateFiles(cachePath, "*", SearchOption.AllDirectories).Select(FullPath.FromPath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var relativeBookPath = new CatalogItemPath(cachePath, cachedBookPath);
+            if (expectedBooks.Contains(relativeBookPath))
+                continue;
+
+            RetryHelper.Execute(() => File.Delete(cachedBookPath), retryCount: 3);
+            removedBookCount++;
+        }
+
+        activity?.AddTag("SourceBookCount", sourceBooks.Length);
+        activity?.AddTag("CopiedBookCount", copiedBookCount);
+        activity?.AddTag("RemovedBookCount", removedBookCount);
+        logger.LogInformation("Books cache synchronized (source: {SourceBookCount}, copied: {CopiedBookCount}, removed: {RemovedBookCount})", sourceBooks.Length, copiedBookCount, removedBookCount);
+
+        return Task.FromResult(cachePath);
     }
 }
