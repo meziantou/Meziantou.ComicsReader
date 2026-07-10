@@ -14,6 +14,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
 {
     private const string CatalogFileName = "catalog.json.gz";
     private const string ReadingListFileName = "readinglist.json.gz";
+    internal const string BookFilesCacheDirectoryName = "book-files-cache";
     private static readonly Func<int, TimeSpan> RetryDelay = retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt));
 
     private readonly BookContentCache _cache = new(FullPath.GetTempPath() / "books_cache");
@@ -101,7 +102,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
         var lastBook = _catalog.ReadingList.Where(item => !item.Completed).MaxBy(item => item.LastRead);
         if (lastBook is not null)
         {
-            _cache.CacheBook(GetBookPath(lastBook.BookPath));
+            _cache.CacheBook(GetBookPathForReading(lastBook.BookPath));
         }
     }
 
@@ -372,6 +373,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
 
             await PersistReadingList();
 
+            _cache.Cleanup(GetBookPathForReading(path));
             _cache.Cleanup(GetBookPath(path));
         }
     }
@@ -383,15 +385,28 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
         activity?.AddTag("PageIndex", pageIndex);
 
         var pageName = book.GetFileNameFromPageIndex(pageIndex);
-        var bookPath = GetBookPath(book.Path);
+        var bookPath = GetBookPathForReading(book.Path);
 
         var cacheFile = _cache.GetCacheFilePath(bookPath, pageName);
         return Task.FromResult<Stream>(File.OpenRead(cacheFile));
     }
 
-    private FullPath GetBookPath(CatalogItemPath path)
+    internal FullPath GetBookPath(CatalogItemPath path)
     {
         return options.Value.Path / path.Value;
+    }
+
+    internal FullPath GetBookPathForReading(CatalogItemPath path)
+    {
+        if (!options.Value.CopyBooksToCache)
+            return GetBookPath(path);
+
+        return GetBookFilesCacheRootPath() / path.Value;
+    }
+
+    internal FullPath GetBookFilesCacheRootPath()
+    {
+        return options.Value.IndexPath / BookFilesCacheDirectoryName;
     }
 
     public async Task<DateTimeOffset> GetLastIndexationDate()
