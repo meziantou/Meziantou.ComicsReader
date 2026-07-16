@@ -348,6 +348,8 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
         {
             await LoadIfNeeded();
 
+            var catalogModified = false;
+
             // Move items to completed directory
             if (!options.Value.CompletedPath.IsEmpty)
             {
@@ -360,6 +362,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
                 if (existingBook is not null)
                 {
                     _catalog.SetBooks(_catalog.Books.Remove(existingBook));
+                    catalogModified = true;
                 }
             }
 
@@ -372,6 +375,11 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
             });
 
             await PersistReadingList();
+
+            if (catalogModified)
+            {
+                await PersistCatalog();
+            }
 
             _cache.Cleanup(GetBookPathForReading(path));
             _cache.Cleanup(GetBookPath(path));

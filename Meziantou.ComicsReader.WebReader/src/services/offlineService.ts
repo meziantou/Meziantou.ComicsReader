@@ -350,12 +350,24 @@ export async function performCleanup(
 ): Promise<void> {
   // Remove books that are no longer available
   const availablePaths = new Set(currentBooks.map(b => b.path));
+
+  // Clean up in-memory cover URL cache for books that are being removed
+  const cachedBooks = await getCachedBooks();
+  for (const { path } of cachedBooks) {
+    if (!availablePaths.has(path)) {
+      cleanupCoverUrlCache(path);
+    }
+  }
+
   await cleanupRemovedBooks(availablePaths);
 
   // Remove completed books from cache
   const completedPaths = new Set(
     readingList.filter(item => item.completed).map(item => item.bookPath)
   );
+  for (const path of completedPaths) {
+    cleanupCoverUrlCache(path);
+  }
   await cleanupCompletedBooks(completedPaths);
 }
 

@@ -211,6 +211,37 @@ public sealed class CatalogServiceTests
     }
 
     [Fact]
+    public async Task MarkAsReadPersistsCatalogSoBookDoesNotReappearAfterRestart()
+    {
+        await using var booksFolder = TemporaryDirectory.Create();
+        await using var completedFolder = TemporaryDirectory.Create();
+        await using var indexFolder = TemporaryDirectory.Create();
+
+        await using (var context = new ComicsReaderTestContext(
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            context.AddBook("book1.cbz");
+            await context.RunIndexer();
+            await context.CatalogService.MarkAsRead(new CatalogItemPath("book1.cbz"));
+        }
+
+        // Simulate server restart: create a new context with the same paths
+        await using (var context = new ComicsReaderTestContext(
+            booksPath: booksFolder.FullPath,
+            booksCompletedPath: completedFolder.FullPath,
+            indexPath: indexFolder.FullPath))
+        {
+            await context.RunIndexer();
+
+            var books = await context.CatalogService.GetBooks();
+
+            Assert.Empty(books);
+        }
+    }
+
+    [Fact]
     public async Task GetPageData()
     {
         await using var context = new ComicsReaderTestContext();
