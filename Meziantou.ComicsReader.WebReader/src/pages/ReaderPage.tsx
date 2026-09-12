@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context';
 import { usePinchZoom, useSwipe } from '../hooks';
@@ -29,6 +29,7 @@ export function ReaderPage() {
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [pageInput, setPageInput] = useState('1');
   const [cacheStatus, setCacheStatus] = useState<{
     isCached: boolean;
     isFullyDownloaded: boolean;
@@ -232,6 +233,33 @@ export function ReaderPage() {
     goToPage(currentPage + 1);
   }, [currentPage, goToPage]);
 
+  // Keep the page number input in sync with the displayed page
+  useEffect(() => {
+    if (bookPageCount === undefined) return;
+
+    setPageInput(String(Math.min(currentPage, bookPageCount - 1) + 1));
+  }, [currentPage, bookPageCount]);
+
+  const commitPageInput = useCallback(() => {
+    if (bookPageCount === undefined) return;
+
+    const displayedPage = Math.min(currentPage, bookPageCount - 1) + 1;
+    const parsedPage = Number.parseInt(pageInput, 10);
+    if (Number.isNaN(parsedPage)) {
+      setPageInput(String(displayedPage));
+      return;
+    }
+
+    const targetPage = Math.max(0, Math.min(parsedPage - 1, bookPageCount - 1));
+    setPageInput(String(targetPage + 1));
+    goToPage(targetPage);
+  }, [bookPageCount, currentPage, pageInput, goToPage]);
+
+  const handlePageInputSubmit = useCallback((e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    commitPageInput();
+  }, [commitPageInput]);
+
   const toggleFullscreen = useCallback(() => {
     if (isFullscreen) {
       document.exitFullscreen?.();
@@ -329,6 +357,10 @@ export function ReaderPage() {
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't hijack keys while the user is typing in a field (e.g. the page number input)
+      const target = e.target;
+      if (target instanceof Element && target.closest('input, textarea, [contenteditable="true"]')) return;
+
       switch (e.key) {
         case 'ArrowRight':
         case 'PageDown':
@@ -420,9 +452,21 @@ export function ReaderPage() {
           <button onClick={goToPreviousPage} disabled={currentPage === 0}>
             Previous
           </button>
-          <span className="page-info">
-            {currentPage + 1} / {book.pageCount}
-          </span>
+          <form className="page-info" onSubmit={handlePageInputSubmit}>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="page-input"
+              min={1}
+              max={book.pageCount}
+              value={pageInput}
+              aria-label="Page number"
+              onChange={e => setPageInput(e.target.value)}
+              onFocus={e => e.target.select()}
+              onBlur={commitPageInput}
+            />
+            <span className="page-count">/ {book.pageCount}</span>
+          </form>
           <button onClick={goToNextPage} disabled={isAtEnd}>
             Next
           </button>
