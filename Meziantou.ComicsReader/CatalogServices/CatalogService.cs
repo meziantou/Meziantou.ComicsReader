@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
@@ -436,6 +436,7 @@ internal sealed partial class CatalogService(IOptions<CatalogConfiguration> opti
         }
     }
 
+    [JsonSourceGenerationOptions(RespectNullableAnnotations = true, RespectRequiredConstructorParameters = true)]
     [JsonSerializable(typeof(Catalog))]
     [JsonSerializable(typeof(PersistedCatalog))]
     [JsonSerializable(typeof(PersistedReadingList))]
