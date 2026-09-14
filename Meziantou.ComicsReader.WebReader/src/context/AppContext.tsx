@@ -279,10 +279,15 @@ export function AppProvider({ children }: AppProviderProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh data');
       if (!isBackgroundRefresh) {
+        // Keep the current books if any, otherwise show what is available offline
+        if (previousBooksRef.current.length === 0) {
+          await loadCachedData();
+        }
+
         setIsLoading(false);
       }
     }
-  }, [apiClient, fetchData]);
+  }, [apiClient, fetchData, loadCachedData]);
 
   // Update settings
   const updateSettings = useCallback(async (newSettings: AppSettings) => {
@@ -330,8 +335,14 @@ export function AppProvider({ children }: AppProviderProps) {
         setApiClient(client);
 
         if (isOnline()) {
-          await syncPendingUpdates(client);
-          await fetchData(client, false);
+          try {
+            await syncPendingUpdates(client);
+            await fetchData(client, false);
+          } catch (err) {
+            // The server may be unreachable even if the device is online, so show what is available offline
+            await loadCachedData();
+            throw err;
+          }
         } else {
           // When offline, load cached data from IndexedDB
           await loadCachedData();

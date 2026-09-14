@@ -82,7 +82,14 @@ export function HomePage() {
         </div>
       )}
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && (
+        <div className="error-banner" role="alert">
+          <span>{error}</span>
+          <button className="error-banner-retry" onClick={() => refreshData()} disabled={isLoading}>
+            Retry
+          </button>
+        </div>
+      )}
 
       {inProgressBooks.length > 0 && (
         <section className="section">

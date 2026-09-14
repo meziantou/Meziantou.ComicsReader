@@ -9,6 +9,9 @@ import type {
   VersionResponse,
 } from '../types';
 
+export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+export const DEFAULT_IMAGE_REQUEST_TIMEOUT_MS = 60_000;
+
 export class ApiError extends Error {
   status: number;
 
@@ -19,13 +22,89 @@ export class ApiError extends Error {
   }
 }
 
+// Thrown when the server cannot be reached (network failure or timeout)
+export class ApiNetworkError extends Error {
+  isTimeout: boolean;
+
+  constructor(message: string, isTimeout: boolean, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ApiNetworkError';
+    this.isTimeout = isTimeout;
+  }
+}
+
+export interface ApiClientOptions {
+  requestTimeoutMs?: number;
+  imageRequestTimeoutMs?: number;
+}
+
+function getHttpErrorMessage(response: Response): string {
+  const status = `${response.status} ${response.statusText ?? ''}`.trim();
+  switch (response.status) {
+    case 401:
+    case 403:
+      return `Authentication failed (${status}). Check the access token in Settings.`;
+    default:
+      return `Server error (${status})`;
+  }
+}
+
 export class ApiClient {
   private baseUrl: string;
   private token: string | null;
+  private requestTimeoutMs: number;
+  private imageRequestTimeoutMs: number;
 
-  constructor(baseUrl: string, token: string | null = null) {
+  constructor(baseUrl: string, token: string | null = null, options: ApiClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.token = token;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.imageRequestTimeoutMs = options.imageRequestTimeoutMs ?? DEFAULT_IMAGE_REQUEST_TIMEOUT_MS;
+  }
+
+  private getServerDisplayName(): string {
+    return this.baseUrl || window.location.origin;
+  }
+
+  // Send a request and read its body, aborting if the whole operation exceeds the timeout
+  private async send<T>(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number,
+    readBody: (response: Response) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      if (!response.ok) {
+        throw new ApiError(response.status, getHttpErrorMessage(response));
+      }
+
+      return await readBody(response);
+    } catch (error) {
+      if (timedOut) {
+        throw new ApiNetworkError(
+          `The server ${this.getServerDisplayName()} did not respond within ${Math.round(timeoutMs / 1000)} seconds.`,
+          true,
+          { cause: error },
+        );
+      }
+
+      // fetch rejects with a TypeError when the server is unreachable
+      if (error instanceof TypeError) {
+        throw new ApiNetworkError(`Unable to reach the server ${this.getServerDisplayName()}.`, false, { cause: error });
+      }
+
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   private async fetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -37,22 +116,24 @@ export class ApiClient {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
-
-    if (!response.ok) {
-      throw new ApiError(response.status, `API error: ${response.statusText}`);
-    }
+    const text = await this.send(url, { ...options, headers }, this.requestTimeoutMs, response => response.text());
 
     // Handle empty responses
-    const text = await response.text();
     if (!text) {
       return undefined as T;
     }
 
     return JSON.parse(text) as T;
+  }
+
+  private async fetchImage(url: string): Promise<Blob> {
+    const headers = new Headers();
+
+    if (this.token) {
+      headers.set('Authorization', `Bearer ${this.token}`);
+    }
+
+    return this.send(url, { headers }, this.imageRequestTimeoutMs, response => response.blob());
   }
 
   // Books
@@ -81,18 +162,7 @@ export class ApiClient {
   }
 
   async getPage(path: string, pageIndex: number): Promise<Blob> {
-    const url = `${this.baseUrl}/api/v1/books/${encodeURIComponent(path)}/pages/${pageIndex}`;
-    const headers = new Headers();
-
-    if (this.token) {
-      headers.set('Authorization', `Bearer ${this.token}`);
-    }
-
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      throw new ApiError(response.status, `Failed to get page: ${response.statusText}`);
-    }
-    return response.blob();
+    return this.fetchImage(`${this.baseUrl}/api/v1/books/${encodeURIComponent(path)}/pages/${pageIndex}`);
   }
 
   getCoverUrl(path: string): string {
@@ -104,18 +174,7 @@ export class ApiClient {
   }
 
   async getCover(path: string): Promise<Blob> {
-    const url = `${this.baseUrl}/api/v1/books/${encodeURIComponent(path)}/cover`;
-    const headers = new Headers();
-
-    if (this.token) {
-      headers.set('Authorization', `Bearer ${this.token}`);
-    }
-
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      throw new ApiError(response.status, `Failed to get cover: ${response.statusText}`);
-    }
-    return response.blob();
+    return this.fetchImage(`${this.baseUrl}/api/v1/books/${encodeURIComponent(path)}/cover`);
   }
 
   async markAsRead(path: string): Promise<void> {

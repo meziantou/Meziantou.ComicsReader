@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ApiClient, ApiError } from '../services/apiClient';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ApiClient, ApiError, ApiNetworkError, DEFAULT_REQUEST_TIMEOUT_MS } from '../services/apiClient';
 
 describe('ApiClient', () => {
   let client: ApiClient;
@@ -63,6 +63,95 @@ describe('ApiClient', () => {
       }) as unknown as typeof fetch;
 
       await expect(client.getBooks()).rejects.toThrow(ApiError);
+    });
+
+    it('should report authentication failures with an actionable message', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: '',
+      }) as unknown as typeof fetch;
+
+      await expect(client.getBooks()).rejects.toThrow('Authentication failed (401). Check the access token in Settings.');
+    });
+
+    it('should throw ApiNetworkError when the server is unreachable', async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Load failed')) as unknown as typeof fetch;
+
+      const error = await client.getBooks().catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ApiNetworkError);
+      expect((error as ApiNetworkError).isTimeout).toBe(false);
+      expect((error as ApiNetworkError).message).toBe(`Unable to reach the server ${baseUrl}.`);
+    });
+  });
+
+  describe('timeout', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function mockHangingFetch() {
+      globalThis.fetch = vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+      })) as unknown as typeof fetch;
+    }
+
+    it('should abort JSON requests that exceed the timeout', async () => {
+      vi.useFakeTimers();
+      mockHangingFetch();
+      const clientWithTimeout = new ApiClient(baseUrl, token, { requestTimeoutMs: 5000 });
+
+      const promise = clientWithTimeout.getBooks().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(5000);
+      const error = await promise;
+
+      expect(error).toBeInstanceOf(ApiNetworkError);
+      expect((error as ApiNetworkError).isTimeout).toBe(true);
+      expect((error as ApiNetworkError).message).toBe(`The server ${baseUrl} did not respond within 5 seconds.`);
+    });
+
+    it('should abort image requests that exceed the image timeout', async () => {
+      vi.useFakeTimers();
+      mockHangingFetch();
+      const clientWithTimeout = new ApiClient(baseUrl, token, { requestTimeoutMs: 1000, imageRequestTimeoutMs: 3000 });
+
+      let settled = false;
+      const promise = clientWithTimeout.getPage('test/book', 1).catch((err: unknown) => err).finally(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      const error = await promise;
+
+      expect(error).toBeInstanceOf(ApiNetworkError);
+      expect((error as ApiNetworkError).isTimeout).toBe(true);
+    });
+
+    it('should abort when reading the response body exceeds the timeout', async () => {
+      vi.useFakeTimers();
+      globalThis.fetch = vi.fn((_url: string, init: RequestInit) => Promise.resolve({
+        ok: true,
+        text: () => new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+        }),
+      })) as unknown as typeof fetch;
+      const clientWithTimeout = new ApiClient(baseUrl, token, { requestTimeoutMs: 2000 });
+
+      const promise = clientWithTimeout.getReadingList().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(await promise).toBeInstanceOf(ApiNetworkError);
+    });
+
+    it('should use the default timeout', async () => {
+      vi.useFakeTimers();
+      mockHangingFetch();
+
+      const promise = client.getBooks().catch((err: unknown) => err);
+      await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS);
+
+      expect(await promise).toBeInstanceOf(ApiNetworkError);
     });
   });
 

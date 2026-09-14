@@ -18,7 +18,7 @@ import './ReaderPage.css';
 export function ReaderPage() {
   const { path } = useParams<{ path: string }>();
   const navigate = useNavigate();
-  const { apiClient, books, refreshData, updateReadingList, settings } = useApp();
+  const { apiClient, books, isLoading: isAppLoading, error: appError, refreshData, updateReadingList, settings } = useApp();
 
   const [book, setBook] = useState<BookResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
@@ -418,8 +418,13 @@ export function ReaderPage() {
   if (!book) {
     return (
       <div className="reader-page">
-        <div className="reader-loading">
-          {error || 'Loading...'}
+        <div className="reader-loading" role={isAppLoading ? undefined : 'alert'}>
+          <span>{isAppLoading ? 'Loading...' : (appError ?? error ?? 'Book not found')}</span>
+          {!isAppLoading && (
+            <button className="back-button" onClick={() => navigate('/')}>
+              ← Back to library
+            </button>
+          )}
         </div>
       </div>
     );
