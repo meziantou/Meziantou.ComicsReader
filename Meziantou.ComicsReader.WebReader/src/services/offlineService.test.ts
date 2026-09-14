@@ -8,7 +8,7 @@ import {
   syncPendingUpdates,
   preloadCoverCache,
 } from '../services/offlineService';
-import { ApiClient } from '../services/apiClient';
+import { ApiClient, ApiNetworkError } from '../services/apiClient';
 import * as storage from '../services/storage';
 
 vi.mock('../services/storage');
@@ -257,6 +257,19 @@ describe('Offline Service', () => {
 
       expect(mockApiClient.updateReadingProgress).not.toHaveBeenCalled();
       expect(storage.removePendingUpdate).toHaveBeenCalledWith('1');
+    });
+
+    it('should stop syncing and keep pending updates when the server is unreachable', async () => {
+      vi.mocked(storage.getPendingUpdates).mockResolvedValue([
+        { id: '1', bookPath: 'test/book1.cbz', pageIndex: 3, timestamp: '2025-01-01' },
+        { id: '2', bookPath: 'test/book2.cbz', pageIndex: 7, timestamp: '2025-01-01' },
+      ]);
+      vi.mocked(mockApiClient.getReadingListItem).mockRejectedValue(new ApiNetworkError('Unable to reach the server', false));
+
+      await expect(syncPendingUpdates(mockApiClient)).rejects.toThrow(ApiNetworkError);
+
+      expect(mockApiClient.getReadingListItem).toHaveBeenCalledTimes(1);
+      expect(storage.removePendingUpdate).not.toHaveBeenCalled();
     });
   });
 

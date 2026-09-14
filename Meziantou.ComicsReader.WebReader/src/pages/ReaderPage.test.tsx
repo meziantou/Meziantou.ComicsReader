@@ -24,12 +24,27 @@ const settings: AppSettings = {
   largeFullscreenProgressBar: false,
 };
 
+const appState = vi.hoisted(() => ({
+  books: [] as BookResponse[],
+  isLoading: false,
+  error: null as string | null,
+}));
+
+// Keep references stable across renders so effects depending on them don't re-run
+const stableApp = vi.hoisted(() => ({
+  apiClient: {},
+  refreshData: () => Promise.resolve(),
+  updateReadingList: () => {},
+}));
+
 vi.mock('../context', () => ({
   useApp: () => ({
-    apiClient: {},
-    books: [book],
-    refreshData: vi.fn(),
-    updateReadingList: vi.fn(),
+    apiClient: stableApp.apiClient,
+    books: appState.books,
+    isLoading: appState.isLoading,
+    error: appState.error,
+    refreshData: stableApp.refreshData,
+    updateReadingList: stableApp.updateReadingList,
     settings,
   }),
 }));
@@ -93,9 +108,51 @@ function submitPage(input: HTMLInputElement, value: string) {
   fireEvent.submit(input.form!);
 }
 
+describe('ReaderPage book loading', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    appState.books = [];
+    appState.isLoading = false;
+    appState.error = null;
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('should show a loading message while the app is loading', () => {
+    appState.isLoading = true;
+
+    renderReader();
+
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByText('← Back to library')).not.toBeInTheDocument();
+  });
+
+  it('should show the app error when the book cannot be loaded', () => {
+    appState.error = 'Unable to reach the server https://example.com.';
+
+    renderReader();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to reach the server https://example.com.');
+    expect(screen.getByText('← Back to library')).toBeInTheDocument();
+  });
+
+  it('should show book not found when the app loaded without the book', () => {
+    appState.books = [{ ...book, path: 'comics/other.cbz' }];
+
+    renderReader();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Book not found');
+  });
+});
+
 describe('ReaderPage page number navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    appState.books = [book];
+    appState.isLoading = false;
+    appState.error = null;
   });
 
   afterEach(() => {

@@ -1,4 +1,4 @@
-import { ApiClient } from './apiClient';
+import { ApiClient, ApiNetworkError } from './apiClient';
 import {
   addPendingUpdate,
   getPendingUpdates,
@@ -98,6 +98,11 @@ export async function syncPendingUpdates(apiClient: ApiClient): Promise<void> {
         }
       }
     } catch (error) {
+      // The server is unreachable, so there is no point trying the remaining books
+      if (error instanceof ApiNetworkError) {
+        throw error;
+      }
+
       // If it's a 400 error (Bad Request), the book probably doesn't exist anymore
       // Delete the pending updates instead of retrying
       if (error instanceof Error && 'status' in error && (error as any).status === 400) {

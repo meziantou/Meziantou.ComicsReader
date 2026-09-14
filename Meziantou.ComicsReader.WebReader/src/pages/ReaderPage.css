@@ -50,6 +50,9 @@
 
 .reader-loading {
   display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: center;
   align-items: center;
   justify-content: center;
   flex: 1;
