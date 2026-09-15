@@ -1,0 +1,63 @@
+# Xcode project definition. Regenerate ComicsReader.xcodeproj with: xcodegen generate
+name: ComicsReader
+options:
+  bundleIdPrefix: net.meziantou
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ""
+
+packages:
+  ComicsReaderKit:
+    path: ComicsReaderKit
+
+targets:
+  ComicsReader:
+    type: application
+    platform: iOS
+    sources:
+      - path: ComicsReader
+    dependencies:
+      - package: ComicsReaderKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.meziantou.comicsreader
+        PRODUCT_NAME: Comics Reader
+        TARGETED_DEVICE_FAMILY: "2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        SWIFT_APPROACHABLE_CONCURRENCY: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: ComicsReader/Info.plist
+      properties:
+        CFBundleDisplayName: Comics Reader
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: ""
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIStatusBarHidden: false
+        NSLocalNetworkUsageDescription: Comics Reader connects to your Comics Reader server on the local network to download your books.
+        # Self-hosted servers are often reachable over plain HTTP on the local network
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
