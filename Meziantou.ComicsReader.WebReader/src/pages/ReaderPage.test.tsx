@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ReaderPage } from './ReaderPage';
 import type { AppSettings, BookResponse } from '../types';
@@ -49,6 +49,17 @@ vi.mock('../context', () => ({
   }),
 }));
 
+interface SwipeHandlers {
+  onSwipeLeft?: () => void;
+  onSwipeRight?: () => void;
+  onSwipeUp?: () => void;
+  onSwipeDown?: () => void;
+}
+
+const swipeState = vi.hoisted(() => ({
+  handlers: null as SwipeHandlers | null,
+}));
+
 vi.mock('../hooks', () => ({
   usePinchZoom: () => ({
     containerRef: { current: null },
@@ -59,11 +70,14 @@ vi.mock('../hooks', () => ({
     isZoomed: false,
     isInteracting: false,
   }),
-  useSwipe: () => ({
-    handleTouchStart: vi.fn(),
-    handleTouchMove: vi.fn(),
-    handleTouchEnd: vi.fn(),
-  }),
+  useSwipe: (handlers: SwipeHandlers) => {
+    swipeState.handlers = handlers;
+    return {
+      handleTouchStart: vi.fn(),
+      handleTouchMove: vi.fn(),
+      handleTouchEnd: vi.fn(),
+    };
+  },
 }));
 
 vi.mock('../hooks/usePWAUpdate', () => ({
@@ -246,5 +260,55 @@ describe('ReaderPage page number navigation', () => {
     fireEvent.keyDown(window, { key: 'ArrowRight' });
 
     expect(await screen.findByAltText('Page 2')).toBeInTheDocument();
+  });
+});
+
+describe('ReaderPage fullscreen swipe gestures', () => {
+  const requestFullscreen = vi.fn(() => Promise.resolve());
+  const exitFullscreen = vi.fn(() => Promise.resolve());
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    appState.books = [book];
+    appState.isLoading = false;
+    appState.error = null;
+    swipeState.handlers = null;
+    HTMLElement.prototype.requestFullscreen = requestFullscreen;
+    document.exitFullscreen = exitFullscreen;
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  function swipe(direction: 'onSwipeUp' | 'onSwipeDown') {
+    act(() => {
+      swipeState.handlers?.[direction]?.();
+    });
+  }
+
+  it.each(['onSwipeUp', 'onSwipeDown'] as const)('should enter fullscreen when %s', async (direction) => {
+    const { container } = renderReader();
+    await getPageInput();
+
+    swipe(direction);
+
+    expect(requestFullscreen).toHaveBeenCalledTimes(1);
+    expect(exitFullscreen).not.toHaveBeenCalled();
+    expect(container.querySelector('.reader-page')).toHaveClass('fullscreen');
+    expect(screen.queryByLabelText('Page number')).not.toBeInTheDocument();
+  });
+
+  it.each(['onSwipeUp', 'onSwipeDown'] as const)('should exit fullscreen when %s in fullscreen', async (direction) => {
+    const { container } = renderReader();
+    await getPageInput();
+
+    swipe('onSwipeUp');
+    swipe(direction);
+
+    expect(requestFullscreen).toHaveBeenCalledTimes(1);
+    expect(exitFullscreen).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.reader-page')).not.toHaveClass('fullscreen');
+    expect(await getPageInput()).toBeInTheDocument();
   });
 });
