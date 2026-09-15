@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ReaderPage } from './ReaderPage';
-import type { AppSettings, BookResponse } from '../types';
+import type { AppSettings, BookResponse, ReaderLocationState } from '../types';
 
 const book: BookResponse = {
   path: 'comics/book.cbz',
@@ -22,6 +22,7 @@ const settings: AppSettings = {
   token: 'token',
   autoDownloadNewBooks: false,
   largeFullscreenProgressBar: false,
+  useNativeFullscreen: false,
 };
 
 const appState = vi.hoisted(() => ({
@@ -88,9 +89,9 @@ vi.mock('../services/storage', () => ({
   removeCachedBook: vi.fn(() => Promise.resolve()),
 }));
 
-function renderReader() {
+function renderReader(state?: ReaderLocationState) {
   return render(
-    <MemoryRouter initialEntries={[`/read/${encodeURIComponent(book.path)}`]}>
+    <MemoryRouter initialEntries={[{ pathname: `/read/${encodeURIComponent(book.path)}`, state }]}>
       <Routes>
         <Route path="/read/:path" element={<ReaderPage />} />
       </Routes>
@@ -246,5 +247,72 @@ describe('ReaderPage page number navigation', () => {
     fireEvent.keyDown(window, { key: 'ArrowRight' });
 
     expect(await screen.findByAltText('Page 2')).toBeInTheDocument();
+  });
+});
+
+describe('ReaderPage fullscreen', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    appState.books = [book];
+    appState.isLoading = false;
+    appState.error = null;
+    settings.useNativeFullscreen = false;
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('should use the in-app fullscreen when native fullscreen is disabled', async () => {
+    const requestFullscreen = vi.spyOn(Element.prototype, 'requestFullscreen');
+    const { container } = renderReader();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fullscreen' }));
+
+    expect(requestFullscreen).not.toHaveBeenCalled();
+    expect(container.querySelector('.reader-page')).toHaveClass('fullscreen');
+    expect(screen.queryByLabelText('Page number')).not.toBeInTheDocument();
+  });
+
+  it('should use the native fullscreen when enabled', async () => {
+    settings.useNativeFullscreen = true;
+    const requestFullscreen = vi.spyOn(Element.prototype, 'requestFullscreen');
+    const { container } = renderReader();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fullscreen' }));
+
+    const readerPage = container.querySelector('.reader-page');
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+    expect(requestFullscreen.mock.contexts[0]).toBe(readerPage);
+    expect(readerPage).toHaveClass('fullscreen');
+  });
+
+  it('should fall back to the in-app fullscreen when native fullscreen fails', async () => {
+    settings.useNativeFullscreen = true;
+    vi.spyOn(Element.prototype, 'requestFullscreen').mockRejectedValue(new Error('Not supported'));
+    const { container } = renderReader();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fullscreen' }));
+
+    await waitFor(() => expect(container.querySelector('.reader-page')).toHaveClass('fullscreen'));
+  });
+
+  it('should leave the in-app fullscreen with the Escape key', async () => {
+    const exitFullscreen = vi.spyOn(document, 'exitFullscreen');
+    const { container } = renderReader();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fullscreen' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(exitFullscreen).not.toHaveBeenCalled();
+    expect(container.querySelector('.reader-page')).not.toHaveClass('fullscreen');
+    expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument();
+  });
+
+  it('should open in fullscreen when requested by the navigation state', async () => {
+    const { container } = renderReader({ fullscreen: true });
+
+    expect(await screen.findByAltText('Page 1')).toBeInTheDocument();
+    expect(container.querySelector('.reader-page')).toHaveClass('fullscreen');
   });
 });

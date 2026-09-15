@@ -106,6 +106,7 @@ export function AppProvider({ children }: AppProviderProps) {
     token: '',
     autoDownloadNewBooks: false,
     largeFullscreenProgressBar: false,
+    useNativeFullscreen: false,
   });
   const [apiClient, setApiClient] = useState<ApiClient | null>(null);
   const [books, setBooks] = useState<BookResponse[]>([]);
