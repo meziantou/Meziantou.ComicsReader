@@ -391,3 +391,82 @@ describe('ReaderPage fullscreen swipe gestures', () => {
     expect(await getPageInput()).toBeInTheDocument();
   });
 });
+
+describe('ReaderPage actions menu', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    appState.books = [book];
+    appState.isLoading = false;
+    appState.error = null;
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('should render navigation and actions on a single toolbar', async () => {
+    const { container } = renderReader();
+    await getPageInput();
+
+    const toolbar = container.querySelector('.reader-controls')!;
+    for (const name of ['First page', 'Previous page', 'Next page', 'Last page', 'Fullscreen', 'Download', 'More actions']) {
+      expect(toolbar).toContainElement(screen.getByRole('button', { name }));
+    }
+    expect(container.querySelector('.reader-actions')).not.toBeInTheDocument();
+  });
+
+  it('should hide the remove actions until the menu is opened', async () => {
+    renderReader();
+    await getPageInput();
+
+    expect(screen.queryByRole('menuitem', { name: 'Remove from list' })).not.toBeInTheDocument();
+
+    const moreButton = screen.getByRole('button', { name: 'More actions' });
+    expect(moreButton).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(moreButton);
+
+    expect(moreButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Remove from list' })).toBeInTheDocument();
+  });
+
+  it('should show remove from cache in the menu when the book is cached', async () => {
+    const services = await import('../services');
+    vi.mocked(services.getBookCacheStatus).mockResolvedValue({
+      isCached: true,
+      isFullyDownloaded: false,
+      cachedPages: 3,
+      totalPages: book.pageCount,
+    });
+
+    renderReader();
+    await getPageInput();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+
+    expect(await screen.findByRole('menuitem', { name: 'Remove from cache' })).toBeInTheDocument();
+  });
+
+  it('should close the menu when clicking outside', async () => {
+    renderReader();
+    await getPageInput();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('should close the menu when pressing Escape', async () => {
+    renderReader();
+    await getPageInput();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+});
