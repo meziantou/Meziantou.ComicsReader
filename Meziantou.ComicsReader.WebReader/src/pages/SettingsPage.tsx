@@ -258,6 +258,20 @@ export function SettingsPage() {
           </p>
         </div>
 
+        <div className="form-group checkbox-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={formData.useNativeFullscreen}
+              onChange={(e) => setFormData({ ...formData, useNativeFullscreen: e.target.checked })}
+            />
+            Use native fullscreen
+          </label>
+          <p className="form-help">
+            Uses the browser fullscreen mode to hide the browser interface while reading. When disabled, fullscreen only hides the reader controls.
+          </p>
+        </div>
+
         <button type="submit" className="save-button" disabled={isSaving}>
           {isSaving ? 'Saving...' : 'Save Settings'}
         </button>

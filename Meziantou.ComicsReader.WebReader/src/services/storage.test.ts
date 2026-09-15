@@ -41,6 +41,7 @@ describe('Storage Service', () => {
         token: '',
         autoDownloadNewBooks: false,
         largeFullscreenProgressBar: false,
+        useNativeFullscreen: false,
       });
     });
 
@@ -50,6 +51,7 @@ describe('Storage Service', () => {
         token: 'my-token',
         autoDownloadNewBooks: true,
         largeFullscreenProgressBar: true,
+        useNativeFullscreen: true,
       };
 
       await saveSettings(newSettings);
@@ -58,12 +60,31 @@ describe('Storage Service', () => {
       expect(retrieved).toEqual(newSettings);
     });
 
+    it('should apply default values for settings saved without newer options', async () => {
+      await saveSettings({
+        serverUrl: 'https://custom-server.example.com',
+        token: 'my-token',
+        autoDownloadNewBooks: true,
+      } as AppSettings);
+
+      const retrieved = await getSettings();
+
+      expect(retrieved).toEqual({
+        serverUrl: 'https://custom-server.example.com',
+        token: 'my-token',
+        autoDownloadNewBooks: true,
+        largeFullscreenProgressBar: false,
+        useNativeFullscreen: false,
+      });
+    });
+
     it('should update existing settings', async () => {
       const initialSettings: AppSettings = {
         serverUrl: 'https://initial.example.com',
         token: 'initial-token',
         autoDownloadNewBooks: false,
         largeFullscreenProgressBar: false,
+        useNativeFullscreen: false,
       };
 
       await saveSettings(initialSettings);
@@ -73,6 +94,7 @@ describe('Storage Service', () => {
         token: 'updated-token',
         autoDownloadNewBooks: true,
         largeFullscreenProgressBar: true,
+        useNativeFullscreen: true,
       };
 
       await saveSettings(updatedSettings);

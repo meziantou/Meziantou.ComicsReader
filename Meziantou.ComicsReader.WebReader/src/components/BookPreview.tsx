@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context';
 import { getCoverWithCache } from '../services';
-import type { BookResponse } from '../types';
+import type { BookResponse, ReaderLocationState } from '../types';
 import './BookPreview.css';
 
 interface BookPreviewProps {
@@ -12,7 +12,7 @@ interface BookPreviewProps {
 }
 
 export function BookPreview({ book, showProgress = true, eager = false }: BookPreviewProps) {
-  const { apiClient, cachedBooksInfo } = useApp();
+  const { apiClient, cachedBooksInfo, settings } = useApp();
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
 
   const isCached = cachedBooksInfo.has(book.path);
@@ -48,17 +48,22 @@ export function BookPreview({ book, showProgress = true, eager = false }: BookPr
       return;
     }
 
-    if (document.fullscreenElement) {
+    if (!settings.useNativeFullscreen || document.fullscreenElement) {
       return;
     }
 
     document.documentElement.requestFullscreen?.().catch(() => {
       // Ignore failures (for example when fullscreen is blocked by browser policies)
     });
-  }, []);
+  }, [settings.useNativeFullscreen]);
 
   return (
-    <Link to={`/reader/${encodeURIComponent(book.path)}`} className="book-preview" onClick={handleOpenBook}>
+    <Link
+      to={`/reader/${encodeURIComponent(book.path)}`}
+      state={{ fullscreen: true } satisfies ReaderLocationState}
+      className="book-preview"
+      onClick={handleOpenBook}
+    >
       <div className="book-cover-container">
         {coverUrl ? (
           <img

@@ -96,6 +96,11 @@ export interface AppSettings {
   token: string;
   autoDownloadNewBooks: boolean;
   largeFullscreenProgressBar: boolean;
+  useNativeFullscreen: boolean;
+}
+
+export interface ReaderLocationState {
+  fullscreen?: boolean;
 }
 
 export type FilterType = 'all' | 'one-shot' | 'series';
