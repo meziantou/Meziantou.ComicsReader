@@ -172,11 +172,13 @@ const DEFAULT_SETTINGS: AppSettings = {
   token: '',
   autoDownloadNewBooks: false,
   largeFullscreenProgressBar: false,
+  useNativeFullscreen: false,
 };
 
 export async function getSettings(): Promise<AppSettings> {
-  const settings = await getFromStore<AppSettings>('settings', 'app-settings');
-  return settings ?? DEFAULT_SETTINGS;
+  const settings = await getFromStore<Partial<AppSettings>>('settings', 'app-settings');
+  // Settings saved by older versions may not contain newly added options
+  return { ...DEFAULT_SETTINGS, ...settings };
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context';
 import { usePinchZoom, useSwipe } from '../hooks';
 import { restoreStateAfterUpdate } from '../hooks/usePWAUpdate';
@@ -12,18 +12,19 @@ import {
   isOnMeteredConnection,
 } from '../services';
 import { removeCachedBook } from '../services/storage';
-import type { BookResponse } from '../types';
+import type { BookResponse, ReaderLocationState } from '../types';
 import './ReaderPage.css';
 
 export function ReaderPage() {
   const { path } = useParams<{ path: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { apiClient, books, isLoading: isAppLoading, error: appError, refreshData, updateReadingList, settings } = useApp();
 
   const [book, setBook] = useState<BookResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [pageUrl, setPageUrl] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
+  const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement || !!(location.state as ReaderLocationState | null)?.fullscreen);
   const [isLoading, setIsLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,11 @@ export function ReaderPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const previousPageUrl = useRef<string | null>(null);
   const hasRestoredState = useRef(false);
+  const useNativeFullscreenRef = useRef(settings.useNativeFullscreen);
+
+  useEffect(() => {
+    useNativeFullscreenRef.current = settings.useNativeFullscreen;
+  }, [settings.useNativeFullscreen]);
 
   const { containerRef: zoomContainerRef, scale, translateX, translateY, resetZoom, isZoomed, isInteracting } = usePinchZoom();
 
@@ -50,6 +56,11 @@ export function ReaderPage() {
     const savedState = restoreStateAfterUpdate();
     if (savedState?.isFullscreen && containerRef.current) {
       hasRestoredState.current = true;
+
+      if (!useNativeFullscreenRef.current) {
+        setIsFullscreen(true);
+        return;
+      }
 
       // Request fullscreen after a short delay to ensure the page is fully loaded
       setTimeout(() => {
@@ -260,21 +271,32 @@ export function ReaderPage() {
     commitPageInput();
   }, [commitPageInput]);
 
+  const exitNativeFullscreen = useCallback(() => {
+    // Always leave native fullscreen, even if the setting was disabled while it was active
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {
+        // Ignore failures (for example when the document already left fullscreen)
+      });
+    }
+  }, []);
+
   const toggleFullscreen = useCallback(() => {
     if (isFullscreen) {
-      document.exitFullscreen?.();
-    } else {
-      containerRef.current?.requestFullscreen?.();
+      exitNativeFullscreen();
+    } else if (settings.useNativeFullscreen) {
+      containerRef.current?.requestFullscreen?.().catch(() => {
+        // Ignore failures and fall back to the in-app fullscreen (for example on iPhone)
+      });
     }
     setIsFullscreen(!isFullscreen);
-  }, [isFullscreen]);
+  }, [isFullscreen, exitNativeFullscreen, settings.useNativeFullscreen]);
 
   const exitFullscreen = useCallback(() => {
     if (isFullscreen) {
-      document.exitFullscreen?.();
+      exitNativeFullscreen();
       setIsFullscreen(false);
     }
-  }, [isFullscreen]);
+  }, [isFullscreen, exitNativeFullscreen]);
 
   const markAsCompleted = useCallback(async () => {
     if (!book || !apiClient) return;
