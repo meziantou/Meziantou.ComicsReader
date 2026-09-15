@@ -372,8 +372,8 @@ export function ReaderPage() {
     onSwipeRight: () => {
       if (!isZoomed && !isInteracting) goToPreviousPage();
     },
-    onSwipeUp: exitFullscreen,
-    onSwipeDown: exitFullscreen,
+    onSwipeUp: toggleFullscreen,
+    onSwipeDown: toggleFullscreen,
   });
 
   // Keyboard navigation
