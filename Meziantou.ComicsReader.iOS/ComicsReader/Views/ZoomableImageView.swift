@@ -4,14 +4,14 @@ import UIKit
 enum SwipeDirection {
     case left
     case right
-    case up
-    case down
 }
 
-/// Displays an image that can be zoomed with a pinch gesture. Swipes are only reported when the image is not zoomed.
+/// Displays an image that can be zoomed with a pinch gesture. Drags are only reported when the image is not zoomed.
 struct ZoomableImageView: UIViewRepresentable {
     let image: UIImage
-    var onSwipe: (SwipeDirection) -> Void
+    var onHorizontalDragChanged: (_ translation: CGFloat) -> Void
+    var onHorizontalDragEnded: (_ translation: CGFloat, _ velocity: CGFloat) -> Void
+    var onVerticalSwipe: () -> Void
     var onTap: (() -> Void)?
     var onDoubleTap: (() -> Void)?
 
@@ -23,19 +23,35 @@ struct ZoomableImageView: UIViewRepresentable {
 
     func updateUIView(_ view: ZoomingImageScrollView, context: Context) {
         view.image = image
-        view.onSwipe = onSwipe
+        view.onHorizontalDragChanged = onHorizontalDragChanged
+        view.onHorizontalDragEnded = onHorizontalDragEnded
+        view.onVerticalSwipe = onVerticalSwipe
         view.onTap = onTap
         view.onDoubleTap = onDoubleTap
     }
 }
 
-final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate {
+    static let verticalSwipeDistance: CGFloat = 50
+
+    private enum PanAxis {
+        case undetermined
+        case horizontal
+        case vertical
+        case ignored
+    }
+
     private let imageView = UIImageView()
     private var lastLayoutSize = CGSize.zero
+    private let panRecognizer = UIPanGestureRecognizer()
+    private let simultaneousGestureDelegate = SimultaneousGestureDelegate()
     private let singleTapRecognizer = UITapGestureRecognizer()
     private let doubleTapRecognizer = UITapGestureRecognizer()
+    private var panAxis = PanAxis.ignored
 
-    var onSwipe: ((SwipeDirection) -> Void)?
+    var onHorizontalDragChanged: ((CGFloat) -> Void)?
+    var onHorizontalDragEnded: ((CGFloat, CGFloat) -> Void)?
+    var onVerticalSwipe: (() -> Void)?
 
     var onTap: (() -> Void)? {
         didSet { singleTapRecognizer.isEnabled = onTap != nil }
@@ -74,12 +90,12 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
         imageView.accessibilityIgnoresInvertColors = true
         addSubview(imageView)
 
-        for direction in [UISwipeGestureRecognizer.Direction.left, .right, .up, .down] {
-            let recognizer = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
-            recognizer.direction = direction
-            recognizer.delegate = self
-            addGestureRecognizer(recognizer)
-        }
+        // The page follows the finger, and the navigation is decided only when the finger is lifted
+        // Don't name the action handlePan(_:), as it would override the private method UIScrollView uses to scroll
+        panRecognizer.addTarget(self, action: #selector(handlePageDrag(_:)))
+        panRecognizer.maximumNumberOfTouches = 1
+        panRecognizer.delegate = simultaneousGestureDelegate
+        addGestureRecognizer(panRecognizer)
 
         singleTapRecognizer.addTarget(self, action: #selector(handleTap))
         singleTapRecognizer.isEnabled = false
@@ -135,13 +151,40 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
         zoomScale > minimumZoomScale + 0.01
     }
 
-    @objc private func handleSwipe(_ recognizer: UISwipeGestureRecognizer) {
-        switch recognizer.direction {
-        case .left: onSwipe?(.left)
-        case .right: onSwipe?(.right)
-        case .up: onSwipe?(.up)
-        case .down: onSwipe?(.down)
-        default: break
+    @objc private func handlePageDrag(_ recognizer: UIPanGestureRecognizer) {
+        // Use the window coordinates, as the view moves with the finger
+        let translation = recognizer.translation(in: nil)
+
+        // When the image is zoomed, the pan gesture of the scroll view moves the image
+        if recognizer.state == .began {
+            panAxis = isZoomed ? .ignored : .undetermined
+        }
+
+        // Cancel the page drag when a pinch starts during the drag
+        if panAxis != .ignored && (isZooming || isZoomed) {
+            if panAxis == .horizontal {
+                onHorizontalDragEnded?(0, 0)
+            }
+
+            panAxis = .ignored
+        }
+
+        // The translation is zero when the gesture begins, so the axis is determined on the first move
+        if panAxis == .undetermined && translation != .zero {
+            panAxis = abs(translation.x) >= abs(translation.y) ? .horizontal : .vertical
+        }
+
+        switch (recognizer.state, panAxis) {
+        case (.began, .horizontal), (.changed, .horizontal):
+            onHorizontalDragChanged?(translation.x)
+        case (.ended, .horizontal):
+            onHorizontalDragEnded?(translation.x, recognizer.velocity(in: nil).x)
+        case (.cancelled, .horizontal), (.failed, .horizontal):
+            onHorizontalDragEnded?(0, 0)
+        case (.ended, .vertical) where abs(translation.y) > Self.verticalSwipeDistance:
+            onVerticalSwipe?()
+        default:
+            break
         }
     }
 
@@ -162,17 +205,11 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         centerContent()
     }
+}
 
-    // UIGestureRecognizerDelegate
-
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if gestureRecognizer is UISwipeGestureRecognizer {
-            return !isZoomed
-        }
-
-        return super.gestureRecognizerShouldBegin(gestureRecognizer)
-    }
-
+/// Allows the page drag to be recognized with the gestures of the scroll view.
+/// The scroll view is not the delegate, as it would override the delegate methods UIScrollView implements for its own gestures.
+private final class SimultaneousGestureDelegate: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         true
     }

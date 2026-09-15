@@ -14,12 +14,11 @@ final class ReaderViewModel {
     private(set) var isDownloading = false
     private(set) var downloadProgress = 0.0
     private(set) var cacheStatus: BookCacheStatus?
-    private(set) var isMovingForward = true
     var errorMessage: String?
     var isFullscreen = true
 
     @ObservationIgnored private let model: AppModel
-    @ObservationIgnored private var images: [Int: UIImage] = [:]
+    private var images: [Int: UIImage] = [:]
     @ObservationIgnored private var pageTasks: [Int: Task<UIImage, any Error>] = [:]
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var preloadTask: Task<Void, Never>?
@@ -78,41 +77,31 @@ final class ReaderViewModel {
             return
         }
 
-        isMovingForward = newPage > currentPage
         currentPage = newPage
         loadCurrentPage()
         saveProgress()
-    }
-
-    func goToNextPage() {
-        goToPage(currentPage + 1)
-    }
-
-    func goToPreviousPage() {
-        goToPage(currentPage - 1)
-    }
-
-    func goToFirstPage() {
-        goToPage(0)
-    }
-
-    func goToLastPage() {
-        goToPage(book.pageCount - 1)
     }
 
     func toggleFullscreen() {
         isFullscreen.toggle()
     }
 
-    func handleSwipe(_ direction: SwipeDirection) {
-        switch direction {
-        case .left: goToNextPage()
-        case .right: goToPreviousPage()
-        case .up, .down: toggleFullscreen()
+    /// Returns the page displayed after a horizontal swipe, or nil when there is no page in this direction
+    func swipeTargetPage(_ direction: SwipeDirection) -> Int? {
+        let page = switch direction {
+        case .left: currentPage + 1
+        case .right: currentPage - 1
         }
+
+        return page >= 0 && page <= book.pageCount ? page : nil
     }
 
     // Pages
+
+    /// Returns the image of a page if it is already loaded
+    func loadedImage(page: Int) -> UIImage? {
+        images[page]
+    }
 
     private func saveProgress() {
         // Chain the updates so the server receives them in order

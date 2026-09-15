@@ -36,12 +36,22 @@ struct ReaderView: View {
 }
 
 private struct ReaderContentView: View {
+    private static let pageSpacing: CGFloat = 16
+    private static let pageAnimationDuration = 0.3
+    private static let flickVelocity: CGFloat = 500
+    private static let edgeResistance: CGFloat = 0.3
+
     @Bindable var viewModel: ReaderViewModel
 
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isKeyboardFocused: Bool
     @FocusState private var isPageFieldFocused: Bool
     @State private var pageInput = 1
+    @State private var pageWidth: CGFloat = 0
+    @State private var dragOffset: CGFloat = 0
+    @State private var isHorizontalDrag: Bool?
+    @State private var pendingPage: Int?
+    @State private var pageAnimationId = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -108,8 +118,30 @@ private struct ReaderContentView: View {
         }
     }
 
-    @ViewBuilder
+    /// The current page moves with the finger, and the adjacent page slides in next to it
     private var pageContent: some View {
+        ZStack {
+            if dragOffset != 0, let neighborPage = viewModel.swipeTargetPage(dragOffset < 0 ? .left : .right) {
+                pagePreview(neighborPage)
+                    .offset(x: dragOffset < 0 ? dragOffset + pageDistance : dragOffset - pageDistance)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+
+            currentPageContent
+                .offset(x: dragOffset)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.width
+        } action: { width in
+            pageWidth = width
+        }
+    }
+
+    @ViewBuilder
+    private var currentPageContent: some View {
         if viewModel.isAtEnd {
             CompletionView(title: viewModel.book.title) {
                 Task {
@@ -118,58 +150,83 @@ private struct ReaderContentView: View {
                     }
                 }
             }
-            .gesture(swipeGesture)
-            .transition(pageTransition)
+            .gesture(pageDragGesture)
         } else if let image = viewModel.image {
             ZoomableImageView(
                 image: image,
-                onSwipe: handleSwipe,
-                onTap: viewModel.isFullscreen ? { viewModel.goToNextPage() } : nil,
+                onHorizontalDragChanged: updatePageDrag,
+                onHorizontalDragEnded: endPageDrag,
+                onVerticalSwipe: { viewModel.toggleFullscreen() },
+                onTap: viewModel.isFullscreen ? { animatePageChange(.left) } : nil,
                 onDoubleTap: viewModel.isFullscreen ? nil : { viewModel.toggleFullscreen() })
-            .id(viewModel.currentPage)
-            .transition(pageTransition)
             .accessibilityLabel("Page \(viewModel.currentPage + 1)")
         } else {
             ZStack {
                 if viewModel.showLoadingIndicator {
-                    ProgressView("Loading page...")
-                        .tint(viewModel.isFullscreen ? .white : nil)
-                        .foregroundStyle(viewModel.isFullscreen ? .white : .primary)
+                    loadingIndicator
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
-            .gesture(swipeGesture)
+            .gesture(pageDragGesture)
         }
     }
 
-    private var pageTransition: AnyTransition {
-        .push(from: viewModel.isMovingForward ? .trailing : .leading)
+    @ViewBuilder
+    private func pagePreview(_ page: Int) -> some View {
+        if page >= viewModel.book.pageCount {
+            CompletionView(title: viewModel.book.title) {}
+        } else if let image = viewModel.loadedImage(page: page) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .accessibilityIgnoresInvertColors()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            loadingIndicator
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
-    /// Swipe gesture for the views that are not handled by the zoomable image view
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 50)
-            .onEnded { value in
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                if abs(horizontal) > abs(vertical) {
-                    handleSwipe(horizontal < 0 ? .left : .right)
-                } else {
-                    handleSwipe(vertical < 0 ? .up : .down)
+    private var loadingIndicator: some View {
+        ProgressView("Loading page...")
+            .tint(viewModel.isFullscreen ? .white : nil)
+            .foregroundStyle(viewModel.isFullscreen ? .white : .primary)
+    }
+
+    /// Drag gesture for the views that are not handled by the zoomable image view
+    private var pageDragGesture: some Gesture {
+        // Use the global coordinates, as the view moves with the finger
+        DragGesture(minimumDistance: 10, coordinateSpace: .global)
+            .onChanged { value in
+                if isHorizontalDrag == nil {
+                    isHorizontalDrag = abs(value.translation.width) >= abs(value.translation.height)
                 }
+
+                if isHorizontalDrag == true {
+                    updatePageDrag(translation: value.translation.width)
+                }
+            }
+            .onEnded { value in
+                if isHorizontalDrag == true {
+                    endPageDrag(translation: value.translation.width, velocity: value.velocity.width)
+                } else if abs(value.translation.height) > ZoomingImageScrollView.verticalSwipeDistance {
+                    viewModel.toggleFullscreen()
+                }
+
+                isHorizontalDrag = nil
             }
     }
 
     @ViewBuilder
     private var pageControls: some View {
         Button("First", systemImage: "backward.end") {
-            viewModel.goToFirstPage()
+            goToPage(0)
         }
         .disabled(viewModel.currentPage == 0)
 
         Button("Previous", systemImage: "chevron.backward") {
-            viewModel.goToPreviousPage()
+            animatePageChange(.right)
         }
         .disabled(viewModel.currentPage == 0)
 
@@ -197,12 +254,12 @@ private struct ReaderContentView: View {
         Spacer()
 
         Button("Next", systemImage: "chevron.forward") {
-            viewModel.goToNextPage()
+            animatePageChange(.left)
         }
         .disabled(viewModel.isAtEnd)
 
         Button("Last", systemImage: "forward.end") {
-            viewModel.goToLastPage()
+            goToPage(viewModel.book.pageCount - 1)
         }
         .disabled(viewModel.currentPage == viewModel.book.pageCount - 1)
     }
@@ -232,16 +289,90 @@ private struct ReaderContentView: View {
         }
     }
 
-    private func handleSwipe(_ direction: SwipeDirection) {
-        withAnimation(.easeOut(duration: 0.2)) {
-            viewModel.handleSwipe(direction)
+    // Page navigation
+
+    /// Distance between the positions of two adjacent pages
+    private var pageDistance: CGFloat {
+        pageWidth + Self.pageSpacing
+    }
+
+    private func updatePageDrag(translation: CGFloat) {
+        completePendingPageChange()
+
+        // Resist the drag when there is no page in this direction
+        let hasTargetPage = viewModel.swipeTargetPage(translation < 0 ? .left : .right) != nil
+        dragOffset = hasTargetPage ? translation : translation * Self.edgeResistance
+    }
+
+    private func endPageDrag(translation: CGFloat, velocity: CGFloat) {
+        let direction: SwipeDirection = translation < 0 ? .left : .right
+        let isFlick = abs(velocity) > Self.flickVelocity && (velocity < 0) == (translation < 0)
+        let isPastHalfPage = abs(translation) > pageWidth / 2
+        if translation != 0 && (isFlick || isPastHalfPage) && viewModel.swipeTargetPage(direction) != nil {
+            animatePageChange(direction, velocity: velocity)
+        } else {
+            withAnimation(.interpolatingSpring(duration: Self.pageAnimationDuration, bounce: 0.1)) {
+                dragOffset = 0
+            }
         }
+    }
+
+    /// Slides the current page out of the screen, and then displays the target page
+    private func animatePageChange(_ direction: SwipeDirection, velocity: CGFloat = 0) {
+        completePendingPageChange()
+        guard let targetPage = viewModel.swipeTargetPage(direction) else {
+            return
+        }
+
+        guard pageWidth > 0 else {
+            viewModel.goToPage(targetPage)
+            return
+        }
+
+        let targetOffset = direction == .left ? -pageDistance : pageDistance
+        let remainingDistance = targetOffset - dragOffset
+
+        // The spring velocity is relative to the animated distance, so the page keeps the speed of the finger
+        let relativeVelocity = remainingDistance == 0 ? 0 : min(max(velocity / remainingDistance, 0), 20)
+
+        pendingPage = targetPage
+        pageAnimationId += 1
+        let animationId = pageAnimationId
+        withAnimation(.interpolatingSpring(duration: Self.pageAnimationDuration, bounce: 0, initialVelocity: relativeVelocity)) {
+            dragOffset = targetOffset
+        } completion: {
+            if pageAnimationId == animationId {
+                completePendingPageChange()
+            }
+        }
+    }
+
+    /// Displays the page of the running page animation without waiting for the end of the animation
+    private func completePendingPageChange() {
+        guard let page = pendingPage else {
+            return
+        }
+
+        pendingPage = nil
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            viewModel.goToPage(page)
+            dragOffset = 0
+        }
+    }
+
+    private func goToPage(_ page: Int) {
+        completePendingPageChange()
+        viewModel.goToPage(page)
     }
 
     private func commitPageInput() {
         let targetPage = min(max(pageInput, 1), viewModel.book.pageCount)
         pageInput = targetPage
-        viewModel.goToPage(targetPage - 1)
+        if targetPage - 1 != viewModel.currentPage {
+            goToPage(targetPage - 1)
+        }
     }
 
     private func handleKeyPress(_ key: KeyEquivalent) -> KeyPress.Result {
@@ -249,17 +380,15 @@ private struct ReaderContentView: View {
             return .ignored
         }
 
-        withAnimation(.easeOut(duration: 0.2)) {
-            switch key {
-            case .rightArrow, .pageDown:
-                viewModel.goToNextPage()
-            case .leftArrow, .pageUp:
-                viewModel.goToPreviousPage()
-            case .escape:
-                viewModel.isFullscreen = false
-            default:
-                viewModel.toggleFullscreen()
-            }
+        switch key {
+        case .rightArrow, .pageDown:
+            animatePageChange(.left)
+        case .leftArrow, .pageUp:
+            animatePageChange(.right)
+        case .escape:
+            viewModel.isFullscreen = false
+        default:
+            viewModel.toggleFullscreen()
         }
 
         return .handled
