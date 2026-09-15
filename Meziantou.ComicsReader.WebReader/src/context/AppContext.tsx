@@ -53,6 +53,21 @@ function areBooksEqualIgnoringTimestamp(a: BookResponse[], b: BookResponse[]): b
   });
 }
 
+// Reading list mutation endpoints only return in-progress items, so keep the completed items we already know about
+function mergeInProgressReadingList(
+  currentReadingList: ReadingListItemResponse[],
+  inProgressItems: ReadingListItemResponse[],
+  removedBookPath: string
+): ReadingListItemResponse[] {
+  const inProgressPaths = new Set(inProgressItems.map(item => item.bookPath));
+  const completedItems = currentReadingList.filter(
+    item => item.completed && item.bookPath !== removedBookPath && !inProgressPaths.has(item.bookPath)
+  );
+
+  return [...inProgressItems, ...completedItems]
+    .sort((a, b) => new Date(b.lastRead).getTime() - new Date(a.lastRead).getTime());
+}
+
 interface AppContextValue {
   // Settings
   settings: AppSettings;
@@ -63,6 +78,7 @@ interface AppContextValue {
 
   // Data
   books: BookResponse[];
+  // All reading list items, including completed ones
   readingList: ReadingListItemResponse[];
   nextToRead: BookResponse[];
   isLoading: boolean;
@@ -74,7 +90,7 @@ interface AppContextValue {
   // Actions
   refreshData: (isBackgroundRefresh?: boolean) => Promise<void>;
   triggerReindex: () => Promise<void>;
-  updateReadingList: (readingList: ReadingListItemResponse[]) => void;
+  removeFromReadingList: (bookPath: string) => Promise<void>;
 
   // Online status
   online: boolean;
@@ -186,7 +202,8 @@ export function AppProvider({ children }: AppProviderProps) {
     try {
       const [booksResponse, readingListResponse] = await Promise.all([
         client.getBooks(),
-        client.getReadingList(),
+        // Completed items are required to compute recommendations and clean up the offline cache
+        client.getReadingList(true),
       ]);
 
       // Create a map of server reading list for quick lookups
@@ -402,9 +419,16 @@ export function AppProvider({ children }: AppProviderProps) {
     };
   }, [apiClient, refreshData, loadCachedData]);
 
-  const updateReadingList = useCallback((newReadingList: ReadingListItemResponse[]) => {
+  const removeFromReadingList = useCallback(async (bookPath: string) => {
+    if (!apiClient) return;
+
+    const readingListResponse = await apiClient.removeFromReadingList(bookPath);
+    const newReadingList = mergeInProgressReadingList(previousReadingListRef.current, readingListResponse.items, bookPath);
+
+    previousReadingListRef.current = newReadingList;
     setReadingList(newReadingList);
-  }, []);
+    setNextToRead(computeNextBooksToRead(previousBooksRef.current, newReadingList));
+  }, [apiClient]);
 
   const value: AppContextValue = {
     settings,
@@ -418,7 +442,7 @@ export function AppProvider({ children }: AppProviderProps) {
     cachedBooksInfo,
     refreshData,
     triggerReindex,
-    updateReadingList,
+    removeFromReadingList,
     online,
   };
 

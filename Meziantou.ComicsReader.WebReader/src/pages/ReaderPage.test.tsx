@@ -35,7 +35,7 @@ const appState = vi.hoisted(() => ({
 const stableApp = vi.hoisted(() => ({
   apiClient: {},
   refreshData: () => Promise.resolve(),
-  updateReadingList: () => {},
+  removeFromReadingList: () => Promise.resolve(),
 }));
 
 vi.mock('../context', () => ({
@@ -45,7 +45,7 @@ vi.mock('../context', () => ({
     isLoading: appState.isLoading,
     error: appState.error,
     refreshData: stableApp.refreshData,
-    updateReadingList: stableApp.updateReadingList,
+    removeFromReadingList: stableApp.removeFromReadingList,
     settings,
   }),
 }));

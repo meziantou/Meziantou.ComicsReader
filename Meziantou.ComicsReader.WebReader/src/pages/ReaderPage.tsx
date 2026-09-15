@@ -37,7 +37,7 @@ export function ReaderPage() {
   const { path } = useParams<{ path: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { apiClient, books, isLoading: isAppLoading, error: appError, refreshData, updateReadingList, settings } = useApp();
+  const { apiClient, books, isLoading: isAppLoading, error: appError, refreshData, removeFromReadingList: removeBookFromReadingList, settings } = useApp();
 
   const [book, setBook] = useState<BookResponse | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
@@ -336,14 +336,13 @@ export function ReaderPage() {
     if (!book || !apiClient) return;
 
     try {
-      const readingListResponse = await apiClient.removeFromReadingList(book.path);
-      updateReadingList(readingListResponse.items);
+      await removeBookFromReadingList(book.path);
       navigate('/');
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       setError(`Failed to remove from reading list: ${errMsg}`);
     }
-  }, [book, apiClient, updateReadingList, navigate]);
+  }, [book, apiClient, removeBookFromReadingList, navigate]);
 
   const downloadBook = useCallback(async () => {
     if (!book || !apiClient) return;
