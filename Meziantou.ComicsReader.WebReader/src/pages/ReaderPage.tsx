@@ -15,6 +15,24 @@ import { removeCachedBook } from '../services/storage';
 import type { BookResponse } from '../types';
 import './ReaderPage.css';
 
+const iconPaths = {
+  first: 'M6 5v14M18 5l-9 7 9 7z',
+  previous: 'M16 5l-9 7 9 7z',
+  next: 'M8 5l9 7-9 7z',
+  last: 'M18 5v14M6 5l9 7-9 7z',
+  fullscreen: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
+  download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  more: 'M4 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0M18 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0',
+};
+
+function Icon({ name }: { name: keyof typeof iconPaths }) {
+  return (
+    <svg className="reader-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d={iconPaths[name]} />
+    </svg>
+  );
+}
+
 export function ReaderPage() {
   const { path } = useParams<{ path: string }>();
   const navigate = useNavigate();
@@ -37,7 +55,10 @@ export function ReaderPage() {
     totalPages: number;
   } | null>(null);
 
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const previousPageUrl = useRef<string | null>(null);
   const hasRestoredState = useRef(false);
 
@@ -387,6 +408,29 @@ export function ReaderPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goToNextPage, goToPreviousPage, exitFullscreen, toggleFullscreen]);
 
+  // Close the actions menu when clicking outside of it or pressing Escape
+  useEffect(() => {
+    if (!isMenuOpen) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.target instanceof Node && menuRef.current?.contains(e.target)) return;
+      setIsMenuOpen(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMenuOpen]);
+
   // Fullscreen change listener
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -451,11 +495,11 @@ export function ReaderPage() {
 
       {!isFullscreen && (
         <div className="reader-controls">
-          <button onClick={() => goToPage(0)} disabled={currentPage === 0}>
-            First
+          <button className="reader-first-page" onClick={() => goToPage(0)} disabled={currentPage === 0} aria-label="First page" title="First page">
+            <Icon name="first" />
           </button>
-          <button onClick={goToPreviousPage} disabled={currentPage === 0}>
-            Previous
+          <button onClick={goToPreviousPage} disabled={currentPage === 0} aria-label="Previous page" title="Previous page">
+            <Icon name="previous" />
           </button>
           <form className="page-info" onSubmit={handlePageInputSubmit}>
             <input
@@ -472,33 +516,44 @@ export function ReaderPage() {
             />
             <span className="page-count">/ {book.pageCount}</span>
           </form>
-          <button onClick={goToNextPage} disabled={isAtEnd}>
-            Next
+          <button onClick={goToNextPage} disabled={isAtEnd} aria-label="Next page" title="Next page">
+            <Icon name="next" />
           </button>
-          <button onClick={() => goToPage(book.pageCount - 1)} disabled={currentPage === book.pageCount - 1}>
-            Last
+          <button className="reader-last-page" onClick={() => goToPage(book.pageCount - 1)} disabled={currentPage === book.pageCount - 1} aria-label="Last page" title="Last page">
+            <Icon name="last" />
           </button>
-        </div>
-      )}
-
-      {!isFullscreen && (
-        <div className="reader-actions">
-          <button onClick={toggleFullscreen}>
-            Fullscreen
-          </button>
-          <button onClick={removeFromReadingList}>
-            Remove from list
+          <span className="reader-controls-separator" aria-hidden="true" />
+          <button onClick={toggleFullscreen} aria-label="Fullscreen" title="Fullscreen">
+            <Icon name="fullscreen" />
           </button>
           {isOnline() && !cacheStatus?.isFullyDownloaded && (
-            <button onClick={downloadBook} disabled={isDownloading}>
-              {isDownloading ? `Downloading ${downloadProgress.toFixed(0)}%` : 'Download'}
+            <button onClick={downloadBook} disabled={isDownloading} aria-label="Download" title="Download">
+              {isDownloading ? `${downloadProgress.toFixed(0)}%` : <Icon name="download" />}
             </button>
           )}
-          {cacheStatus?.isCached && (
-            <button onClick={removeFromCache}>
-              Remove from cache
+          <div className="reader-menu" ref={menuRef}>
+            <button
+              onClick={() => setIsMenuOpen(open => !open)}
+              aria-label="More actions"
+              title="More actions"
+              aria-haspopup="menu"
+              aria-expanded={isMenuOpen}
+            >
+              <Icon name="more" />
             </button>
-          )}
+            {isMenuOpen && (
+              <div className="reader-menu-items" role="menu">
+                <button role="menuitem" onClick={() => { setIsMenuOpen(false); removeFromReadingList(); }}>
+                  Remove from list
+                </button>
+                {cacheStatus?.isCached && (
+                  <button role="menuitem" onClick={() => { setIsMenuOpen(false); removeFromCache(); }}>
+                    Remove from cache
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
