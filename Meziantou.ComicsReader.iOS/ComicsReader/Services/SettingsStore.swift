@@ -6,6 +6,28 @@ struct AppSettings: Equatable {
     var token = ""
     var autoDownloadNewBooks = false
     var largeFullscreenProgressBar = false
+    var keepScreenAwakeTimeoutMinutes = KeepScreenAwakeTimeout.fifteenMinutes.rawValue
+}
+
+/// Duration without user interaction after which the screen is allowed to sleep again while the app is open
+enum KeepScreenAwakeTimeout: Int, CaseIterable, Identifiable {
+    case off = 0
+    case twoMinutes = 2
+    case fiveMinutes = 5
+    case tenMinutes = 10
+    case fifteenMinutes = 15
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .off: "Off"
+        case .twoMinutes: "2 minutes"
+        case .fiveMinutes: "5 minutes"
+        case .tenMinutes: "10 minutes"
+        case .fifteenMinutes: "15 minutes"
+        }
+    }
 }
 
 /// Persists the settings in the user defaults, except the token which is stored in the keychain
@@ -14,6 +36,7 @@ struct SettingsStore {
         static let serverURL = "serverUrl"
         static let autoDownloadNewBooks = "autoDownloadNewBooks"
         static let largeFullscreenProgressBar = "largeFullscreenProgressBar"
+        static let keepScreenAwakeTimeoutMinutes = "keepScreenAwakeTimeoutMinutes"
     }
 
     private let defaults: UserDefaults
@@ -29,13 +52,15 @@ struct SettingsStore {
             serverURL: defaults.string(forKey: Keys.serverURL) ?? "",
             token: readToken() ?? "",
             autoDownloadNewBooks: defaults.bool(forKey: Keys.autoDownloadNewBooks),
-            largeFullscreenProgressBar: defaults.bool(forKey: Keys.largeFullscreenProgressBar))
+            largeFullscreenProgressBar: defaults.bool(forKey: Keys.largeFullscreenProgressBar),
+            keepScreenAwakeTimeoutMinutes: defaults.object(forKey: Keys.keepScreenAwakeTimeoutMinutes) as? Int ?? KeepScreenAwakeTimeout.fifteenMinutes.rawValue)
     }
 
     func save(_ settings: AppSettings) throws {
         defaults.set(settings.serverURL, forKey: Keys.serverURL)
         defaults.set(settings.autoDownloadNewBooks, forKey: Keys.autoDownloadNewBooks)
         defaults.set(settings.largeFullscreenProgressBar, forKey: Keys.largeFullscreenProgressBar)
+        defaults.set(settings.keepScreenAwakeTimeoutMinutes, forKey: Keys.keepScreenAwakeTimeoutMinutes)
         try saveToken(settings.token)
     }
 

@@ -94,10 +94,16 @@ struct SettingsView: View {
         Section {
             Toggle("Auto-download new books for offline reading", isOn: settingBinding(\.autoDownloadNewBooks) { try await model.setAutoDownloadNewBooks($0) })
             Toggle("Large progress bar in fullscreen", isOn: settingBinding(\.largeFullscreenProgressBar) { try await model.setLargeFullscreenProgressBar($0) })
+
+            Picker("Keep Screen Awake", selection: settingBinding(\.keepScreenAwakeTimeoutMinutes) { try await model.setKeepScreenAwakeTimeoutMinutes($0) }) {
+                ForEach(KeepScreenAwakeTimeout.allCases) { timeout in
+                    Text(timeout.label).tag(timeout.rawValue)
+                }
+            }
         } header: {
             Text("Reading")
         } footer: {
-            Text("Books are downloaded automatically only on Wi-Fi when Low Data Mode is disabled. The large progress bar displays the page number in fullscreen mode.")
+            Text("Books are downloaded automatically only on Wi-Fi when Low Data Mode is disabled. The large progress bar displays the page number in fullscreen mode. Keep Screen Awake prevents the screen from sleeping while the app is active, and turns back to normal after the selected duration without interaction.")
         }
     }
 
@@ -221,7 +227,7 @@ struct SettingsView: View {
         return "\(StringUtilities.formatFileSize(book.fileSize)) • \(book.pageCount) pages • \(status)"
     }
 
-    private func settingBinding(_ keyPath: KeyPath<AppSettings, Bool>, update: @escaping (Bool) async throws -> Void) -> Binding<Bool> {
+    private func settingBinding<Value>(_ keyPath: KeyPath<AppSettings, Value>, update: @escaping (Value) async throws -> Void) -> Binding<Value> {
         Binding(
             get: { model.settings[keyPath: keyPath] },
             set: { value in

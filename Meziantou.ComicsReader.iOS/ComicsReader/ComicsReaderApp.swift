@@ -21,6 +21,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [Route] = []
+    @State private var idleSleepKeeper = IdleSleepKeeper()
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -34,6 +35,7 @@ struct RootView: View {
                     }
                 }
         }
+        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in idleSleepKeeper.recordActivity() })
         .task {
             await model.start()
         }
@@ -48,6 +50,15 @@ struct RootView: View {
             if oldPhase == .background && newPhase != .background {
                 Task { await model.refresh(isBackgroundRefresh: true) }
             }
+
+            if newPhase == .active {
+                idleSleepKeeper.sceneDidBecomeActive()
+            } else {
+                idleSleepKeeper.sceneDidResignActive()
+            }
+        }
+        .onChange(of: model.settings.keepScreenAwakeTimeoutMinutes, initial: true) {
+            idleSleepKeeper.configure(timeoutMinutes: model.settings.keepScreenAwakeTimeoutMinutes)
         }
     }
 }

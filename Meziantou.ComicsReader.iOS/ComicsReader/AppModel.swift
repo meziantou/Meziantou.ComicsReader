@@ -208,6 +208,12 @@ final class AppModel {
         try await updateSettings(newSettings)
     }
 
+    func setKeepScreenAwakeTimeoutMinutes(_ value: Int) async throws {
+        var newSettings = settings
+        newSettings.keepScreenAwakeTimeoutMinutes = value
+        try await updateSettings(newSettings)
+    }
+
     // Server actions
 
     func triggerReindex() async throws {

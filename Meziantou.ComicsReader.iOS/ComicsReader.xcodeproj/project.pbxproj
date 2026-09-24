@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0772C34FE6A8F31395679018 /* IdleSleepKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999111BC39B7E4326B96C274 /* IdleSleepKeeper.swift */; };
 		0C697BFF4FB5F28DB1307914 /* CoverImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37674E96088BF78871104340 /* CoverImageCache.swift */; };
 		20D07ABE562E0F64CF754322 /* ComicsReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE5C38B8BB71C21923DFE75 /* ComicsReaderApp.swift */; };
 		3478F520D7085A337B6EB760 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0105B7DBAD30739CAD55DB2C /* AppModel.swift */; };
@@ -36,6 +37,7 @@
 		7CE5C38B8BB71C21923DFE75 /* ComicsReaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicsReaderApp.swift; sourceTree = "<group>"; };
 		88088BA995C81F25CF4F976B /* BookGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookGrid.swift; sourceTree = "<group>"; };
 		8EBE6D16B7523F620452C4C7 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		999111BC39B7E4326B96C274 /* IdleSleepKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleSleepKeeper.swift; sourceTree = "<group>"; };
 		A91D72435610F5ECD7730A7C /* ComicsReader.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ComicsReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0D87C15B5668417EC142791 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -77,6 +79,7 @@
 			isa = PBXGroup;
 			children = (
 				37674E96088BF78871104340 /* CoverImageCache.swift */,
+				999111BC39B7E4326B96C274 /* IdleSleepKeeper.swift */,
 				8EBE6D16B7523F620452C4C7 /* NetworkMonitor.swift */,
 				21E3C7395B8F3E5ED564ECEA /* SettingsStore.swift */,
 			);
@@ -193,6 +196,7 @@
 				6147A59EE22E5311E39907A1 /* BookGrid.swift in Sources */,
 				20D07ABE562E0F64CF754322 /* ComicsReaderApp.swift in Sources */,
 				0C697BFF4FB5F28DB1307914 /* CoverImageCache.swift in Sources */,
+				0772C34FE6A8F31395679018 /* IdleSleepKeeper.swift in Sources */,
 				BEE280B8AAA44E59390F85D6 /* LibraryView.swift in Sources */,
 				54586E6A5B5987CACE980B0F /* NetworkMonitor.swift in Sources */,
 				E5E341F6773EDB9DC48D4778 /* ReaderView.swift in Sources */,
