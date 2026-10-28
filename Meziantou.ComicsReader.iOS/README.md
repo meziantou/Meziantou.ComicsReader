@@ -28,3 +28,15 @@ xcodebuild build -project ComicsReader.xcodeproj -scheme ComicsReader -destinati
 ```
 
 After adding or removing files, or editing `project.yml`, regenerate the Xcode project with `xcodegen generate`.
+
+## Deploy to a device
+
+`deploy.sh` builds the app, installs it on the connected iPad, and launches it. It uses the only connected physical device and the first development team signed in to Xcode:
+
+```bash
+./deploy.sh
+```
+
+Options: `--device <udid>` when several devices are connected, `--team <team id>` (or the `DEVELOPMENT_TEAM` environment variable), `--configuration Release`, and `--no-launch`.
+
+The device must be paired with this Mac and have Developer Mode enabled. The first time, iOS blocks the launch until you trust the developer in Settings > General > VPN & Device Management. With a free Personal Team, the app expires after 7 days; run the script again to reinstall it.
