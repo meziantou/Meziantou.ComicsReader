@@ -46,7 +46,7 @@ trap 'rm -rf "$tmp_dir"' EXIT
 if [[ -z "$device" ]]; then
     xcrun devicectl list devices --json-output "$tmp_dir/devices.json" >/dev/null
     devices="$(jq -r '.result.devices[]
-        | select(.hardwareProperties.reality == "physical"
+        | select(.hardwareProperties.reality != "simulated"
             and .connectionProperties.pairingState == "paired"
             and .connectionProperties.transportType != null)
         | "\(.hardwareProperties.udid)\t\(.deviceProperties.name) (\(.hardwareProperties.marketingName))"' "$tmp_dir/devices.json")"
